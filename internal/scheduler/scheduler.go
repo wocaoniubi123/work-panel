@@ -153,11 +153,11 @@ func poke(ch chan struct{}) {
 	}
 }
 
-// nextFire 返回 now 之后最近的一个整点触发时间；hours 为本地小时（0-23）。
+// nextFire 返回 now 之后最近的一个触发时刻（整点过 5 秒）；hours 为本地小时（0-23）。
 func nextFire(now time.Time, hours []int) time.Time {
 	var earliest time.Time
 	for _, h := range hours {
-		t := time.Date(now.Year(), now.Month(), now.Day(), h, 0, 0, 0, now.Location())
+		t := time.Date(now.Year(), now.Month(), now.Day(), h, 0, 5, 0, now.Location())
 		if !t.After(now) {
 			t = t.Add(24 * time.Hour)
 		}
