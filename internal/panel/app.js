@@ -1361,13 +1361,13 @@ function renderUsageChart(series) {
 
   const max = Math.max(1, ...pts.map(p => p.tt));
 
-  // 柱宽取「最小真实间隔」的 50%，并夹在合理区间内——窗口拉到 30 天时柱子会
+  // 柱宽取「最小真实间隔」的 25%，并夹在合理区间内——窗口拉到 30 天时柱子会
   // 变细，但不会细到看不见；24 小时窗（点距 1 小时）也不至过宽。
   let minGap = Infinity;
   for (let i = 1; i < pts.length; i++) minGap = Math.min(minGap, pts[i].t - pts[i - 1].t);
   if (!isFinite(minGap) || minGap <= 0) minGap = span;
   const slot = iw * (minGap / span);
-  const bw = Math.max(1.5, Math.min(18, slot * 0.5));
+  const bw = Math.max(1.5, Math.min(9, slot * 0.25));
 
   const xOf = t => PL + (t - t0) / span * iw;
 
@@ -1386,7 +1386,8 @@ function renderUsageChart(series) {
   // 柱子
   for (const p of pts) {
     const cx = xOf(p.t);
-    const x = cx - bw / 2;
+    // 整柱钳进绘图区：首柱左移会压到 y 轴刻度数字、末柱右移会越出右边界。
+    const x = Math.min(Math.max(cx - bw / 2, PL), W - PR - bw);
     const hTot = ih * (p.tt / max);
     const hP = p.tt ? hTot * (p.pt / p.tt) : 0;
     const hC = Math.max(p.tt && p.ct ? 1 : 0, hTot - hP);

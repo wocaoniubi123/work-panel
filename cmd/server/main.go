@@ -117,6 +117,9 @@ func main() {
 			// realm 感知闭包：带前缀模型名按 realm 过滤可用账号（跨 realm 不泄漏）；
 			// 裸名走 cn（现状零回归）。闭包内部 resolveModel 剥前缀，再按 realm 过滤。
 			AvailableForModel: realmAwareAvailableForModel(p),
+			// 重分配时的"最早到期优先"挑号（A 方案）：池里有窗口内快到期号就先绑它
+			// 烧分；没有则回落 session 内的空闲+哈希分配。
+			PickExpiring: realmAwarePickExpiring(p),
 		})
 		sessRouter.LoadFromStore() // 启动时从 Redis 恢复粘性（读操作仅此处）
 		sessRouter.StartGC()

@@ -260,6 +260,46 @@ func (p *Pool) pick(tried map[string]bool, reqModel, realm string) *auth.Auth {
 	return e.a
 }
 
+// PickExpiringUID 会话（重）分配专用的"最早到期优先"挑号（A 方案）：在"该模型上可用
+// （healthy 未占满，含 6004 模型豁免）"的账号里，返回配置窗口内存在快到期批次、且
+// 最早到期时间最靠前的那个 uid；没有符合条件的账号时 ok=false（调用方回落其他策略）。
+//
+// 过滤/排序口径与 pick() 的最早到期优先块一致（creditsExpiring>0、最早批次有剩余、
+// 到期时间在未来；同到期按剩余降序、uid 兜底），区别是**无副作用**：不改
+// lastUsed/usedSeq、不触发成本探索、零新增上游请求——它只决定"会话绑给谁"，
+// 在途租约与使用记录仍由随后请求的 PickByUIDForModel/Acquire 完成。
+func (p *Pool) PickExpiringUID(model, realm string) (string, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := time.Now()
+	var best *entry
+	for _, e := range p.byUID {
+		if realm != "" && e.a.Realm() != realm {
+			continue
+		}
+		if !e.healthyForModel(now, model) {
+			continue
+		}
+		if p.inFlightFull(e) {
+			continue
+		}
+		if e.creditsExpiring <= 0 || e.creditsEarliestRemaining <= 0 ||
+			e.creditsEarliestExpiry.IsZero() || !e.creditsEarliestExpiry.After(now) {
+			continue
+		}
+		if best == nil ||
+			e.creditsEarliestExpiry.Before(best.creditsEarliestExpiry) ||
+			(e.creditsEarliestExpiry.Equal(best.creditsEarliestExpiry) && e.creditsEarliestRemaining > best.creditsEarliestRemaining) ||
+			(e.creditsEarliestExpiry.Equal(best.creditsEarliestExpiry) && e.creditsEarliestRemaining == best.creditsEarliestRemaining && e.a.UID < best.a.UID) {
+			best = e
+		}
+	}
+	if best == nil {
+		return "", false
+	}
+	return best.a.UID, true
+}
+
 // pickEarliestExpiryLocked 全冷却兜底：在非禁用的软冷却/熔断账号中选截止最早的一个。
 // 分级：disabled 永不参与；CoolHard（余额耗尽，等签到的号）同样排除——调了必 402，浪费轮换并产生噪音日志；
 // CoolSoft 与熔断号允许参与（可能已恢复，失败成本仅一轮换）。

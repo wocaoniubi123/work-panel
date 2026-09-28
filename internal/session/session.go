@@ -41,6 +41,13 @@ type Config struct {
 	// 模型级限额后对**其他模型**仍可用（issue #31 豁免），此时若只按账号级可用性
 	// 校验，会话会被钉在这个号上反复失败——正是"限额后换不动号"的观感来源。
 	AvailableForModel func(model string) []string
+	// PickExpiring 会话（重）分配时的"最早到期优先"挑号（A 方案）：返回"配置窗口内
+	// 存在快到期批次"的账号里最早到期的 uid；ok=false 表示没有，回落既有的
+	// 空闲优先+哈希分配。nil = 禁用（行为与引入前完全一致）。
+	//
+	// 为什么挂在会话层而不是直接复用 pool.pick：重分配只决定"绑定给谁"——不产生
+	// 上游请求、不占在途、也不该触发请求级的成本探索记账；这些语义仍属于请求选号。
+	PickExpiring func(model string) (string, bool)
 }
 
 // Router 会话粘性路由器。
@@ -176,6 +183,21 @@ func (r *Router) ResolveForModel(key, model string) (string, bool) {
 	uids := r.availableSlice(model)
 	if len(uids) == 0 {
 		return "", false
+	}
+
+	// 最早到期优先（重分配时只生效这一次）：池里只要有"窗口内快到期"的号，就把
+	// 最早到期的那个绑给本会话（把快过期的积分先去烧）；没有才回落下面的
+	// 空闲优先+哈希分配。绑定后照旧粘住、不逐请求重算。
+	if r.cfg.PickExpiring != nil {
+		if uid, ok := r.cfg.PickExpiring(model); ok && uid != "" {
+			prev, existed := r.entries[key]
+			r.entries[key] = entry{uid: uid, lastActive: now}
+			if existed && prev.uid != uid {
+				r.cfg.Store.DelBind(key)
+			}
+			r.cfg.Store.SetBind(key, uid, r.cfg.TTL)
+			return uid, true
+		}
 	}
 
 	// 双段策略：优先"空闲账号"（未被任何会话绑定的可用号），其次全池。

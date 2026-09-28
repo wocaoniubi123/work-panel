@@ -19,3 +19,14 @@ func realmAwareAvailableForModel(p *pool.Pool) func(model string) []string {
 		return p.AvailableUIDsForModelRealm(bare, realm)
 	}
 }
+
+// realmAwarePickExpiring 构造会话重分配"最早到期优先"挑号闭包（A 方案）。
+//
+// realm 口径与 realmAwareAvailableForModel 完全一致：带前缀模型名先剥前缀再按
+// realm 过滤——否则 global 前缀的会话会被分配去 CN 号，与可用集口径打架（跨域泄漏）。
+func realmAwarePickExpiring(p *pool.Pool) func(model string) (string, bool) {
+	return func(model string) (string, bool) {
+		realm, bare := server.ResolveModel(model)
+		return p.PickExpiringUID(bare, realm)
+	}
+}
