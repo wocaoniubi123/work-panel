@@ -1223,6 +1223,12 @@ function fmtTok(n) {
   if (n >= 1e8) return (n / 1e8).toFixed(2) + '亿';
   return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
+/* fmtCredit 消耗积分展示：固定两位小数，整数部分带千分位（如 1,234.56）。 */
+function fmtCredit(n) {
+  n = Number(n || 0);
+  const p = n.toFixed(2).split('.');
+  return p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + p[1];
+}
 function fmtMs(ms) {
   ms = Number(ms || 0);
   if (!ms) return '—';
@@ -1232,7 +1238,7 @@ function fmtMs(ms) {
 function fmtRate(r) { return r ? Number(r).toFixed(1) + ' tok/s' : '—'; }
 
 function usStat(v, k, cls) {
-  // ≥9 字符（9,999,999 起）的大数字在 6 列卡片里会顶破格子：降一档字号（.v.long）。
+  // ≥9 字符（9,999,999 起）的大数字在多列卡片里会顶破格子：降一档字号（.v.long）。
   const long = String(v).length >= 9 ? ' long' : '';
   return '<div class="stat ' + (cls || '') + '"><div class="v' + long + '">' + esc(v) +
          '</div><div class="k">' + esc(k) + '</div></div>';
@@ -1249,7 +1255,7 @@ function usBar(prompt, completion, total) {
     '</span>';
 }
 
-/* usRow 生成一行。mid 是插在「名称」之后、请求数之前的额外单元格（如「域」列）。
+/* usRow 生成一行。mid 是插在「名称」之后、「消耗积分」之前的额外单元格（如「域」列）。
    withPerf 控制是否追加延迟/速率两列——只有「按账号」表的表头带这两列；
    模型表与域表没有，多输出会造成列错位。早先靠「mid 是否为 undefined」隐式
    判断，调用方稍一改动就会错列，故改为显式参数。 */
@@ -1258,6 +1264,7 @@ function usRow(name, sub, a, mid, withPerf) {
     '<td class="mark" aria-hidden="true"></td>' +
     '<td>' + esc(name) + (sub ? '<div class="note">' + esc(sub) + '</div>' : '') + '</td>' +
     (mid || '') +
+    '<td class="num credit">' + fmtCredit(a.credit) + '</td>' +
     '<td class="num">' + fmtTok(a.requests) + '</td>' +
     '<td class="num">' + (a.errors ? '<span style="color:var(--warn)">' + fmtTok(a.errors) + '</span>' : '—') + '</td>' +
     '<td class="num">' + fmtTok(a.prompt_tokens) + '</td>' +
@@ -1273,6 +1280,7 @@ function usRow(name, sub, a, mid, withPerf) {
 function renderUsage(d) {
   const t = d.totals || {};
   $('usStats').innerHTML =
+    usStat(fmtCredit(t.credit), '消耗积分', 'credit') +
     usStat(fmtTok(t.requests), '请求数') +
     usStat(fmtTok(t.total_tokens), '总 token') +
     usStat(fmtTok(t.prompt_tokens), 'prompt') +
@@ -1293,13 +1301,13 @@ function renderUsage(d) {
   $('usAccBody').innerHTML = (d.by_account || []).map(x =>
     usRow(x.key.slice(0, 8), x.extra || '', x,
       '<td class="num">' + esc(x.realm || '') + '</td>', true)
-  ).join('') || '<tr><td colspan="10" class="empty">暂无数据</td></tr>';
+  ).join('') || '<tr><td colspan="11" class="empty">暂无数据</td></tr>';
 
   $('usModelBody').innerHTML = (d.by_model || []).map(x =>
-    usRow(x.key, '', x, '', false)).join('') || '<tr><td colspan="7" class="empty">暂无数据</td></tr>';
+    usRow(x.key, '', x, '', false)).join('') || '<tr><td colspan="8" class="empty">暂无数据</td></tr>';
 
   $('usRealmBody').innerHTML = (d.by_realm || []).map(x =>
-    usRow(x.key, '', x, '', false)).join('') || '<tr><td colspan="7" class="empty">暂无数据</td></tr>';
+    usRow(x.key, '', x, '', false)).join('') || '<tr><td colspan="8" class="empty">暂无数据</td></tr>';
 
   renderUsageChart(d.series || []);
 }
@@ -1353,13 +1361,13 @@ function renderUsageChart(series) {
 
   const max = Math.max(1, ...pts.map(p => p.tt));
 
-  // 柱宽取「最小真实间隔」的 70%，并夹在合理区间内——窗口拉到 30 天时柱子会
-  // 变细，但不会细到看不见。
+  // 柱宽取「最小真实间隔」的 50%，并夹在合理区间内——窗口拉到 30 天时柱子会
+  // 变细，但不会细到看不见；24 小时窗（点距 1 小时）也不至过宽。
   let minGap = Infinity;
   for (let i = 1; i < pts.length; i++) minGap = Math.min(minGap, pts[i].t - pts[i - 1].t);
   if (!isFinite(minGap) || minGap <= 0) minGap = span;
   const slot = iw * (minGap / span);
-  const bw = Math.max(1.5, Math.min(30, slot * 0.7));
+  const bw = Math.max(1.5, Math.min(18, slot * 0.5));
 
   const xOf = t => PL + (t - t0) / span * iw;
 

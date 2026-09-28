@@ -57,6 +57,7 @@ type bucket struct {
 	LatN  int64   `json:"ln"` // 延迟样本数
 	TPS   float64 `json:"v"`  // 吐字速率累计
 	TPSN  int64   `json:"vn"` // 速率样本数
+	Cr    float64 `json:"cr"` // 消耗积分合计（上游 usage.credit；缺观测不累计）
 }
 
 // file 落盘结构。
@@ -138,6 +139,8 @@ type Delta struct {
 	HasLatency       bool
 	TokensPerSecond  float64
 	HasTPS           bool
+	Credit           float64
+	HasCredit        bool
 }
 
 // Add 记录一次请求尝试。
@@ -189,6 +192,10 @@ func (r *Recorder) Add(now time.Time, realm, uid, model string, d Delta, ok bool
 		b.TPS += d.TokensPerSecond
 		b.TPSN++
 	}
+	// 消耗积分：上游给了 credit 才累计（缺失与「免费」是两回事，不按 0 记）。
+	if d.HasCredit {
+		b.Cr += d.Credit
+	}
 	r.dirty = true
 }
 
@@ -237,6 +244,7 @@ func (r *Recorder) Rollup(now time.Time) {
 			dst.LatN += src.LatN
 			dst.TPS += src.TPS
 			dst.TPSN += src.TPSN
+			dst.Cr += src.Cr
 		}
 		delete(r.buckets, m.from)
 	}
@@ -315,6 +323,7 @@ type Agg struct {
 	PromptTokens  int64   `json:"prompt_tokens"`
 	CompletionTok int64   `json:"completion_tokens"`
 	TotalTokens   int64   `json:"total_tokens"`
+	Credit        float64 `json:"credit"` // 消耗积分合计（窗口内观测到的 usage.credit）
 	AvgLatencyMs  float64 `json:"avg_latency_ms"`
 	AvgTPS        float64 `json:"avg_tokens_per_second"`
 }
@@ -335,6 +344,7 @@ func (g *aggAcc) add(b *bucket) {
 	g.PromptTokens += b.PT
 	g.CompletionTok += b.CT
 	g.TotalTokens += b.TT
+	g.Credit += b.Cr
 	g.latSum += b.LatMs
 	g.latSamples += b.LatN
 	g.tpsSum += b.TPS
