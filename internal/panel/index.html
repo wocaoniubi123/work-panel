@@ -187,6 +187,8 @@ label.fld > .hint { display: block; font-size: 11.5px; color: var(--ink-3); marg
 .stat .v { font: 600 26px/1.15 var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -.02em; white-space: nowrap; }
 .stat .k { color: var(--ink-3); font-size: 11.5px; margin-top: 5px; }
 .stat.good .v { color: var(--ok); } .stat.warn .v { color: var(--warn); } .stat.bad .v { color: var(--bad); }
+/* 全量数字比 K/M 长一截：≥9 字符（9,999,999 起）降一档字号，保证 6 列卡片不顶破格子。 */
+.stat .v.long { font-size: 20px; letter-spacing: -.03em; }
 
 /* ── 面板块 ───────────────────────────────────────────────────────── */
 .box { background: var(--surface); border: 1px solid var(--line); border-radius: 11px; box-shadow: var(--shadow); margin-bottom: 20px; overflow: hidden; }
@@ -195,6 +197,7 @@ label.fld > .hint { display: block; font-size: 11.5px; color: var(--ink-3); marg
 .box > header h3 .hint { font-size: 11.5px; font-weight: 400; color: var(--ink-3); margin-left: 6px; }
 .box > header .grow { flex: 1; }
 .box > header .note { color: var(--ink-3); font-size: 12px; }
+.us-head { flex-wrap: wrap; row-gap: 6px; }
 .box .pad { padding: 17px; }
 
 /* ── 账号表（签名元素：健康色条 + 积分量条）───────────────────────── */
@@ -601,17 +604,18 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
     <!-- 用量 -->
     <section class="view" id="view-usage" hidden>
       <div class="box">
-        <header>
+        <header class="us-head">
           <h3>用量总览</h3>
           <span class="grow"></span>
           <span class="note" id="usNote">—</span>
-          <select id="usWindow" class="xs">
-            <option value="24">近 24 小时</option>
-            <option value="72" selected>近 3 天</option>
-            <option value="168">近 7 天</option>
-            <option value="720">近 30 天</option>
-            <option value="0">全部历史</option>
-          </select>
+          <span class="chips" id="usWindow">
+            <button class="xs chip" data-h="24">近 24 小时</button>
+            <button class="xs chip" data-h="72">近 3 天</button>
+            <button class="xs chip on" data-h="today">今日</button>
+            <button class="xs chip" data-h="168">近 7 天</button>
+            <button class="xs chip" data-h="720">近 30 天</button>
+            <button class="xs chip" data-h="0">全部历史</button>
+          </span>
           <button class="xs" id="btnUsage">刷新</button>
         </header>
         <div class="stats" id="usStats"></div>

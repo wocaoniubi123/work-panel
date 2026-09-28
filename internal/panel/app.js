@@ -1216,12 +1216,12 @@ function reattachQueueView() {
 /* 图表用原生 SVG 手绘：面板是 go:embed 单文件、无构建步骤，引入图表库
    就得带上打包器，得不偿失。这里只需要堆叠柱状图，二十行足够。 */
 
+/* fmtTok 数字全量展示：不足 1 亿按实际数字显示（带千分位，如 12,345,678），
+   到亿收紧为 x.xx 亿（两位小数）。K/M/B 缩写第一眼读不出数量级，弃用。 */
 function fmtTok(n) {
   n = Number(n || 0);
-  if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
-  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
-  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
-  return String(n);
+  if (n >= 1e8) return (n / 1e8).toFixed(2) + '亿';
+  return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 function fmtMs(ms) {
   ms = Number(ms || 0);
@@ -1232,7 +1232,9 @@ function fmtMs(ms) {
 function fmtRate(r) { return r ? Number(r).toFixed(1) + ' tok/s' : '—'; }
 
 function usStat(v, k, cls) {
-  return '<div class="stat ' + (cls || '') + '"><div class="v">' + esc(v) +
+  // ≥9 字符（9,999,999 起）的大数字在 6 列卡片里会顶破格子：降一档字号（.v.long）。
+  const long = String(v).length >= 9 ? ' long' : '';
+  return '<div class="stat ' + (cls || '') + '"><div class="v' + long + '">' + esc(v) +
          '</div><div class="k">' + esc(k) + '</div></div>';
 }
 
@@ -1280,8 +1282,8 @@ function renderUsage(d) {
 
   // 卡片、三张表与时序图全部按所选窗口统计（切窗口数字随之变化）；
   // 「全部历史」含 90 天前折叠出的日桶。这里标注当前口径与数据起点。
-  const winLabel = ($('usWindow') && $('usWindow').selectedOptions[0]) ?
-    $('usWindow').selectedOptions[0].textContent.trim() : '';
+  const wb = usWinBtn();
+  const winLabel = wb ? wb.textContent.trim() : '';
   $('usNote').textContent =
     (winLabel ? winLabel + ' · ' : '') +
     (d.buckets || 0) + ' 个分桶' +
@@ -1341,7 +1343,8 @@ function renderUsageChart(series) {
     return;
   }
 
-  const W = 760, H = 180, PL = 52, PR = 12, PT = 12, PB = 30;
+  // PL=72：y 轴刻度可能是 10 字符的千万级数字（10px 字号约 60px 宽），52 会截断。
+  const W = 760, H = 180, PL = 72, PR = 12, PT = 12, PB = 30;
   const iw = W - PL - PR, ih = H - PT - PB;
 
   const t0 = pts[0].t;
@@ -1437,8 +1440,19 @@ function renderUsageChart(series) {
 
 function fmtTokTip(v) { return fmtTok(v); }
 
+/* usWinBtn 返回用量窗口当前选中的 chip（无则第一颗）。 */
+function usWinBtn() {
+  const host = $('usWindow');
+  if (!host) return null;
+  return host.querySelector('.chip.on') || host.querySelector('.chip');
+}
+
 async function loadUsage() {
-  const hours = ($('usWindow') && $('usWindow').value) || 72;
+  // 「今日」折算成「当前小时数 + 1」的最近 N 小时：后端按服务器本地时区整点分桶，
+  // 同机访问时窗口起点恰为今天 0 点，且天然不含昨天（未来的桶不存在）。
+  const wb = usWinBtn();
+  let hours = wb ? wb.dataset.h : '72';
+  if (hours === 'today') hours = new Date().getHours() + 1;
   try {
     const d = await api('usage?hours=' + encodeURIComponent(hours));
     renderUsage(d);
@@ -1448,7 +1462,12 @@ async function loadUsage() {
 }
 
 if ($('btnUsage')) $('btnUsage').onclick = loadUsage;
-if ($('usWindow')) $('usWindow').onchange = loadUsage;
+if ($('usWindow')) $('usWindow').addEventListener('click', ev => {
+  const b = ev.target.closest('button[data-h]');
+  if (!b) return;
+  document.querySelectorAll('#usWindow .chip').forEach(c => c.classList.toggle('on', c === b));
+  loadUsage();
+});
 
 /* ── 积分构成 ─────────────────────────────────────────────────────── */
 /* 一个账号的余额是若干积分包之和。包按来源命名（「国内运营裂变包」「拉新权益包」
