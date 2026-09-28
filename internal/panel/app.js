@@ -1388,7 +1388,8 @@ function usRow(name, sub, a, mid, withPerf) {
     '<td class="mark" aria-hidden="true"></td>' +
     '<td>' + esc(name) + (sub ? '<div class="note">' + esc(sub) + '</div>' : '') + '</td>' +
     (mid || '') +
-    '<td class="num credit">' + fmtCredit(a.credit) + '</td>' +
+    '<td class="num credit">' + fmtCredit(a.credits) + '</td>' +
+    '<td class="num credit">' + fmtCreditRatio(a.credits_per_1m_tokens, a.credit_samples, a.credit_tokens) + '</td>' +
     '<td class="num">' + fmtTok(a.requests) + '</td>' +
     '<td class="num">' + (a.errors ? '<span style="color:var(--warn)">' + fmtTok(a.errors) + '</span>' : '—') + '</td>' +
     '<td class="num">' + fmtTok(a.prompt_tokens) + '</td>' +
@@ -1404,7 +1405,7 @@ function usRow(name, sub, a, mid, withPerf) {
 function renderUsage(d) {
   const t = d.totals || {};
   $('usStats').innerHTML =
-    usStat(fmtCredit(t.credit), '消耗积分', 'credit') +
+    usStat(fmtCredit(t.credits), '消耗积分 · 均 ' + fmtCreditRatio(t.credits_per_1m_tokens, t.credit_samples, t.credit_tokens), 'credit') +
     usStat(fmtTok(t.requests), '请求数') +
     usStat(fmtTok(t.total_tokens), '总 token') +
     usStat(fmtTok(t.prompt_tokens), 'prompt') +
@@ -1425,55 +1426,23 @@ function renderUsage(d) {
   $('usAccBody').innerHTML = (d.by_account || []).map(x =>
     usRow(x.key.slice(0, 8), x.extra || '', x,
       '<td class="num">' + esc(x.realm || '') + '</td>', true)
-  ).join('') || '<tr><td colspan="11" class="empty">暂无数据</td></tr>';
+  ).join('') || '<tr><td colspan="12" class="empty">暂无数据</td></tr>';
+
+  // 模型倍率：从「积分扣除」的 模型+倍率 分组取 模型→倍率 映射；
+  // 无积分样本的模型显示「—」（不伪造）。
+  const rateMap = {};
+  (d.credit_by_model || []).forEach(r => {
+    if (r && r.key && rateMap[r.key] === undefined) rateMap[r.key] = r.rate || '';
+  });
 
   $('usModelBody').innerHTML = (d.by_model || []).map(x =>
-    usRow(x.key, '', x, '', false)).join('') || '<tr><td colspan="8" class="empty">暂无数据</td></tr>';
+    usRow(x.key, '', x, '<td>' + esc(fmtModelRate(rateMap[x.key])) + '</td>', false)
+  ).join('') || '<tr><td colspan="10" class="empty">暂无数据</td></tr>';
 
   $('usRealmBody').innerHTML = (d.by_realm || []).map(x =>
-    usRow(x.key, '', x, '', false)).join('') || '<tr><td colspan="8" class="empty">暂无数据</td></tr>';
+    usRow(x.key, '', x, '', false)).join('') || '<tr><td colspan="9" class="empty">暂无数据</td></tr>';
 
-  renderCreditDimensions(d);
   renderUsageChart(d.series || []);
-}
-
-function renderCreditDimensions(d) {
-  const t = d.totals || {};
-  const accounts = d.credit_by_account || [];
-  const models = d.credit_by_model || [];
-  $('usCreditStats').innerHTML =
-    usStat(fmtCredit(t.credits), '扣除积分') +
-    usStat(fmtTok(t.credit_tokens), '匹配 Token') +
-    usStat(fmtCreditRatio(t.credits_per_1m_tokens, t.credit_samples, t.credit_tokens), '平均积分 / 1M Token') +
-    usStat(String(t.credit_samples || 0), '有效积分样本');
-
-  $('usCreditNote').textContent =
-    accounts.length + ' 个账号 · ' + models.length + ' 个模型倍率分组 · 仅统计与积分同时观测到的 Token';
-
-  $('usCreditAccBody').innerHTML = accounts.map(row => {
-    const uid = String(row.key || '');
-    const account = row.nickname || uid.slice(0, 8) || '—';
-    return '<tr>' +
-      '<td class="mark" aria-hidden="true"></td>' +
-      '<td>' + esc(account) + '<div class="note">' + esc(row.realm || '') + ' · ' + esc(uid.slice(0, 8)) + '</div></td>' +
-      '<td class="num">' + fmtTok(row.requests) + '</td>' +
-      '<td class="num">' + fmtCredit(row.credits) + '</td>' +
-      '<td class="num">' + fmtTok(row.credit_tokens) + '</td>' +
-      '<td class="num">' + fmtCreditRatio(row.credits_per_1m_tokens, row.credit_samples, row.credit_tokens) + '</td>' +
-      '</tr>';
-  }).join('') || '<tr><td colspan="6" class="empty">暂无积分扣除记录；升级前仅含 Token 的历史不会伪造积分。</td></tr>';
-
-  $('usCreditModelBody').innerHTML = models.map(row =>
-    '<tr>' +
-      '<td class="mark" aria-hidden="true"></td>' +
-      '<td>' + esc(row.key || '—') + '</td>' +
-      '<td>' + esc(fmtModelRate(row.rate)) + '</td>' +
-      '<td class="num">' + fmtTok(row.requests) + '</td>' +
-      '<td class="num">' + fmtCredit(row.credits) + '</td>' +
-      '<td class="num">' + fmtTok(row.credit_tokens) + '</td>' +
-      '<td class="num">' + fmtCreditRatio(row.credits_per_1m_tokens, row.credit_samples, row.credit_tokens) + '</td>' +
-    '</tr>'
-  ).join('') || '<tr><td colspan="7" class="empty">暂无积分扣除记录；升级前仅含 Token 的历史不会伪造积分。</td></tr>';
 }
 
 /* renderUsageChart 画堆叠柱状图。

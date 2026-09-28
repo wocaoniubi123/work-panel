@@ -280,6 +280,10 @@ func main() {
 	log.SetOutput(io.MultiWriter(os.Stderr, pn.Logs()))
 	server.SetChatLogOutput(io.MultiWriter(os.Stdout, pn.Logs()))
 
+	// 启动预热（前端去预热 + 后端拉一次）：异步拉一遍模型目录，暖倍率快照与 effort
+	// 能力缓存；失败仅写日志，不阻塞启动、不影响任何服务路径。
+	go pn.WarmModelRates()
+
 	h := server.NewHandler(server.Config{
 		Pool:         p,
 		Upstream:     up,

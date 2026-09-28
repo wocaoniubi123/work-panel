@@ -342,6 +342,34 @@ func (p *Panel) models(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "models": out})
 }
 
+// WarmModelRates 启动预热：异步各域拉一次模型目录，让倍率快照 / effort 缓存在首访前就绪
+//（「前端去预热 + 启动拉一次」：前端不再为用量页自动预热模型目录）。失败仅记日志，不影响启动。
+func (p *Panel) WarmModelRates() {
+	if p == nil || p.cfg.Pool == nil || p.cfg.Upstream == nil {
+		return
+	}
+	if uids := p.cfg.Pool.AvailableUIDsForRealm("cn"); len(uids) > 0 {
+		if acct := p.cfg.Pool.AuthByUID(uids[0]); acct != nil {
+			if _, err := p.cfg.Upstream.FetchModels(acct); err != nil {
+				log.Printf("[panel] 启动预热：CN 模型目录拉取失败: %v", err)
+			} else {
+				log.Printf("[panel] 启动预热：CN 模型目录已就绪")
+			}
+		}
+	}
+	if p.cfg.Upstream.GlobalEnabled {
+		if uids := p.cfg.Pool.AvailableUIDsForRealm("global"); len(uids) > 0 {
+			if acct := p.cfg.Pool.AuthByUID(uids[0]); acct != nil {
+				if infos := p.cfg.Upstream.FetchGlobalModelInfos(acct); len(infos) == 0 {
+					log.Printf("[panel] 启动预热：global 模型目录为空")
+				} else {
+					log.Printf("[panel] 启动预热：global 模型目录已就绪（%d 个）", len(infos))
+				}
+			}
+		}
+	}
+}
+
 // panelModelEntry 构造单个模型条目（两域共用）：id 带 realm 前缀（调用值即显示值），
 // context_length / max_output_tokens 走四级查找链，effort 档位按 realm 域取
 // EffortListing（远端权威 ∪ 静态兜底表）——与 /v1/models 同一口径，两侧不再漂移。
