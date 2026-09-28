@@ -215,8 +215,8 @@ func TestLifecycleFlush(t *testing.T) {
 	}
 }
 
-// 旧版本落盘的桶只有积分（cr）没有配对样本（cn/ct/cm）：只进「消耗积分」总数，
-// 绝不抬高「积分 / 1M」（比例分子 = 匹配样本小计 CRM）。
+// 旧版本落盘的桶只有积分（cr）没有样本字段（cn/ct）：只进「消耗积分」总数，
+// 绝不抬高「积分 / 1M」（比例分子只取带样本字段 CRN>0 的桶）。
 func TestLegacyCreditExcludedFromRatio(t *testing.T) {
 	r := New("")
 	now := time.Now()
@@ -234,6 +234,21 @@ func TestLegacyCreditExcludedFromRatio(t *testing.T) {
 	}
 	if s.Totals.CreditsPer1MTokens != 1000 {
 		t.Fatalf("ratio = %v, want 1000（旧数据无配对样本，不进比例）", s.Totals.CreditsPer1MTokens)
+	}
+}
+
+// 「合并后构建」写的桶带样本字段（cn/ct）：照常计入比例（分子取桶的 CR、分母取其 CRT）。
+func TestSampledBucketsCountTowardRatio(t *testing.T) {
+	r := New("")
+	now := time.Now()
+	scope := "h:" + now.Format(hourLayout)
+	r.mu.Lock()
+	r.buckets[scope+"|cn|u|m|"] = &bucket{Scope: scope, Realm: "cn", UID: "u", Model: "m", Req: 1, CR: 5, CRN: 1, CRT: 1000}
+	r.mu.Unlock()
+
+	s := r.Snapshot(24, nil)
+	if s.Totals.Credits != 5 || s.Totals.CreditsPer1MTokens != 5000 {
+		t.Fatalf("sampled bucket totals = %+v, want credits=5 ratio=5000", s.Totals)
 	}
 }
 

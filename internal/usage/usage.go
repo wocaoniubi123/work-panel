@@ -65,7 +65,6 @@ type bucket struct {
 	CR    float64 `json:"cr,omitempty"` // usage.credit 累计（仅明确存在的观测）
 	CRN   int64   `json:"cn,omitempty"` // usage.credit 样本数（区分缺字段与真实 0）
 	CRT   int64   `json:"ct,omitempty"` // 同时具备 credit 与 token 的 Token 合计
-	CRM   float64 `json:"cm,omitempty"` // 匹配样本的 credit 小计（与 CRT 同批请求；旧数据无此字段按 0）
 }
 
 // file 落盘结构。
@@ -197,14 +196,12 @@ func (r *Recorder) Add(now time.Time, realm, uid, model string, d Delta, ok bool
 		b.CR += d.Credit
 		b.CRN++
 		// 比例只使用同一次请求同时具备 credit 与 token 的样本，避免把
-		// 仅 token 的旧记录或仅 credit 的观测混进分母；CRM 与 CRT 同批累计，
-		// 「积分 / 1M」= CRM / CRT —— 旧数据只有 CR 没有配对样本，不进比例。
+		// 仅 token 的旧记录或仅 credit 的观测混进分母；比例分子只取
+		// CRN>0 的桶（见 aggAcc.finish），旧版本无样本字段的记录不进比例。
 		if d.HasTotal {
 			b.CRT += d.TotalTokens
-			b.CRM += d.Credit
 		} else if d.HasPromptTokens || d.HasCompletion {
 			b.CRT += d.PromptTokens + d.CompletionTokens
-			b.CRM += d.Credit
 		}
 	}
 	if d.HasLatency {
@@ -266,7 +263,6 @@ func (r *Recorder) Rollup(now time.Time) {
 			dst.CR += src.CR
 			dst.CRN += src.CRN
 			dst.CRT += src.CRT
-			dst.CRM += src.CRM
 		}
 		delete(r.buckets, m.from)
 	}
@@ -357,11 +353,11 @@ type Agg struct {
 // 正确加权（不能对每桶的均值再取平均），所以样本数留在这里。
 type aggAcc struct {
 	Agg
-	latSum     int64
-	latSamples int64
-	tpsSum     float64
-	tpsSamples int64
-	crmSum     float64 // 匹配样本 credit 小计：比例分子只用它（不含无配对样本的旧数据）
+	latSum        int64
+	latSamples    int64
+	tpsSum        float64
+	tpsSamples    int64
+	sampledCredit float64 // CRN>0（带样本字段）桶的积分小计：比例分子只用它；旧版本记录无样本字段，不进比例
 }
 
 func (g *aggAcc) add(b *bucket) {
@@ -373,7 +369,9 @@ func (g *aggAcc) add(b *bucket) {
 	g.Credits += b.CR
 	g.CreditSamples += b.CRN
 	g.CreditTokens += b.CRT
-	g.crmSum += b.CRM
+	if b.CRN > 0 {
+		g.sampledCredit += b.CR
+	}
 	g.latSum += b.LatMs
 	g.latSamples += b.LatN
 	g.tpsSum += b.TPS
@@ -389,7 +387,7 @@ func (g *aggAcc) finish() Agg {
 		a.AvgTPS = g.tpsSum / float64(g.tpsSamples)
 	}
 	if g.CreditTokens > 0 {
-		a.CreditsPer1MTokens = g.crmSum / float64(g.CreditTokens) * 1_000_000
+		a.CreditsPer1MTokens = g.sampledCredit / float64(g.CreditTokens) * 1_000_000
 	}
 	return a
 }
