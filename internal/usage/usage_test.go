@@ -214,3 +214,38 @@ func TestLifecycleFlush(t *testing.T) {
 		t.Fatalf("Stop 后应有落盘文件: %v", err)
 	}
 }
+
+// 旧版本落盘的桶只有积分（cr）没有配对样本（cn/ct/cm）：只进「消耗积分」总数，
+// 绝不抬高「积分 / 1M」（比例分子 = 匹配样本小计 CRM）。
+func TestLegacyCreditExcludedFromRatio(t *testing.T) {
+	r := New("")
+	now := time.Now()
+	scope := "h:" + now.Format(hourLayout)
+	key := scope + "|cn|u|m|"
+	r.mu.Lock()
+	r.buckets[key] = &bucket{Scope: scope, Realm: "cn", UID: "u", Model: "m", Req: 1, TT: 1_000_000, CR: 10}
+	r.mu.Unlock()
+	// 新样本：积分 1 / 匹配 Token 1000 → 比例应为 1000，而不是 (10+1)/1001000*1e6。
+	r.Add(now, "cn", "u", "m", Delta{TotalTokens: 1000, HasTotal: true, Credit: 1, HasCredit: true}, true)
+
+	s := r.Snapshot(24, nil)
+	if s.Totals.Credits != 11 || s.Totals.CreditSamples != 1 || s.Totals.CreditTokens != 1000 {
+		t.Fatalf("totals = %+v, want credits=11 samples=1 ctok=1000（旧积分仍进总数）", s.Totals)
+	}
+	if s.Totals.CreditsPer1MTokens != 1000 {
+		t.Fatalf("ratio = %v, want 1000（旧数据无配对样本，不进比例）", s.Totals.CreditsPer1MTokens)
+	}
+}
+
+// 旧记录的带前缀模型名（cn:/global:）与裸名在「按模型」合并为同一行。
+func TestByModelMergesPrefixedNames(t *testing.T) {
+	r := New("")
+	now := time.Now()
+	r.Add(now, "cn", "u1", "cn:glm-5.2", Delta{PromptTokens: 10, HasPromptTokens: true}, true)
+	r.Add(now.Add(time.Hour), "cn", "u1", "glm-5.2", Delta{PromptTokens: 20, HasPromptTokens: true}, true)
+
+	s := r.Snapshot(24, nil)
+	if len(s.ByModel) != 1 || s.ByModel[0].Key != "glm-5.2" || s.ByModel[0].PromptTokens != 30 {
+		t.Fatalf("by_model = %+v, want 前缀并为一行的 glm-5.2（pt=30）", s.ByModel)
+	}
+}

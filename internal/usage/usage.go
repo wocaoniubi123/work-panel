@@ -65,6 +65,7 @@ type bucket struct {
 	CR    float64 `json:"cr,omitempty"` // usage.credit 累计（仅明确存在的观测）
 	CRN   int64   `json:"cn,omitempty"` // usage.credit 样本数（区分缺字段与真实 0）
 	CRT   int64   `json:"ct,omitempty"` // 同时具备 credit 与 token 的 Token 合计
+	CRM   float64 `json:"cm,omitempty"` // 匹配样本的 credit 小计（与 CRT 同批请求；旧数据无此字段按 0）
 }
 
 // file 落盘结构。
@@ -196,11 +197,14 @@ func (r *Recorder) Add(now time.Time, realm, uid, model string, d Delta, ok bool
 		b.CR += d.Credit
 		b.CRN++
 		// 比例只使用同一次请求同时具备 credit 与 token 的样本，避免把
-		// 仅 token 的旧记录或仅 credit 的观测混进分母。
+		// 仅 token 的旧记录或仅 credit 的观测混进分母；CRM 与 CRT 同批累计，
+		// 「积分 / 1M」= CRM / CRT —— 旧数据只有 CR 没有配对样本，不进比例。
 		if d.HasTotal {
 			b.CRT += d.TotalTokens
+			b.CRM += d.Credit
 		} else if d.HasPromptTokens || d.HasCompletion {
 			b.CRT += d.PromptTokens + d.CompletionTokens
+			b.CRM += d.Credit
 		}
 	}
 	if d.HasLatency {
@@ -262,6 +266,7 @@ func (r *Recorder) Rollup(now time.Time) {
 			dst.CR += src.CR
 			dst.CRN += src.CRN
 			dst.CRT += src.CRT
+			dst.CRM += src.CRM
 		}
 		delete(r.buckets, m.from)
 	}
@@ -356,6 +361,7 @@ type aggAcc struct {
 	latSamples int64
 	tpsSum     float64
 	tpsSamples int64
+	crmSum     float64 // 匹配样本 credit 小计：比例分子只用它（不含无配对样本的旧数据）
 }
 
 func (g *aggAcc) add(b *bucket) {
@@ -367,6 +373,7 @@ func (g *aggAcc) add(b *bucket) {
 	g.Credits += b.CR
 	g.CreditSamples += b.CRN
 	g.CreditTokens += b.CRT
+	g.crmSum += b.CRM
 	g.latSum += b.LatMs
 	g.latSamples += b.LatN
 	g.tpsSum += b.TPS
@@ -382,7 +389,7 @@ func (g *aggAcc) finish() Agg {
 		a.AvgTPS = g.tpsSum / float64(g.tpsSamples)
 	}
 	if g.CreditTokens > 0 {
-		a.CreditsPer1MTokens = g.Credits / float64(g.CreditTokens) * 1_000_000
+		a.CreditsPer1MTokens = g.crmSum / float64(g.CreditTokens) * 1_000_000
 	}
 	return a
 }
@@ -539,10 +546,13 @@ func (r *Recorder) SnapshotWithRates(hours int, nicks map[string]string, current
 			acctRealm[b.UID] = b.Realm
 		}
 
-		if modelAgg[b.Model] == nil {
-			modelAgg[b.Model] = &aggAcc{}
+		// 模型维度按规范化名合并：旧记录可能带 cn:/global: 前缀，口径与积分
+		// 维度一致（canonicalUsageModel），否则同名模型会拆成两行。
+		mk := canonicalUsageModel(b.Model)
+		if modelAgg[mk] == nil {
+			modelAgg[mk] = &aggAcc{}
 		}
-		modelAgg[b.Model].add(b)
+		modelAgg[mk].add(b)
 
 		if strings.HasPrefix(b.Scope, "h:") {
 			scope := strings.TrimPrefix(b.Scope, "h:")

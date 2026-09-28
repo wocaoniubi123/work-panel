@@ -1383,8 +1383,8 @@ function usBar(prompt, completion, total) {
   const pp = Math.max(0, Math.min(100, Number(prompt || 0) / t * 100));
   const pc = Math.max(0, Math.min(100, Number(completion || 0) / t * 100));
   return '<span class="us-wrapbar">' +
-    '<span class="bar bar-p" style="width:' + (pp * 0.8).toFixed(1) + 'px" title="prompt"></span>' +
-    '<span class="bar bar-c" style="width:' + Math.max(2, pc * 0.8).toFixed(1) + 'px" title="completion"></span>' +
+    '<span class="bar bar-p" style="width:' + (pp * 0.8).toFixed(1) + 'px" title="输入"></span>' +
+    '<span class="bar bar-c" style="width:' + Math.max(2, pc * 0.8).toFixed(1) + 'px" title="输出"></span>' +
     '</span>';
 }
 
@@ -1417,8 +1417,8 @@ function renderUsage(d) {
     usStat(fmtCredit(t.credits), '消耗积分 · 均 ' + fmtCreditRatio(t.credits_per_1m_tokens, t.credit_samples, t.credit_tokens), 'credit') +
     usStat(fmtTok(t.requests), '请求数') +
     usStat(fmtTok(t.total_tokens), '总 token') +
-    usStat(fmtTok(t.prompt_tokens), 'prompt') +
-    usStat(fmtTok(t.completion_tokens), 'completion') +
+    usStat(fmtTok(t.prompt_tokens), '输入') +
+    usStat(fmtTok(t.completion_tokens), '输出') +
     usStat(t.errors ? String(t.errors) : '0', '失败尝试', t.errors ? 'warn' : '') +
     usStat(fmtMs(t.avg_latency_ms), '平均延迟');
 
@@ -1540,8 +1540,8 @@ function renderUsageChart(series) {
     if (hC > 0) out += '<rect x="' + x.toFixed(2) + '" y="' + (yBase - hP - hC).toFixed(2) +
       '" width="' + bw.toFixed(2) + '" height="' + hC.toFixed(2) +
       '" fill="var(--ok)" rx="1.5"/>';
-    out += '<title>' + esc(p.raw) + '  ' + fmtTok(p.pt) + ' prompt / ' +
-           fmtTok(p.ct) + ' completion / ' + p.req + ' 次</title>';
+    out += '<title>' + esc(p.raw) + '  ' + fmtTok(p.pt) + ' 输入 / ' +
+           fmtTok(p.ct) + ' 输出 / ' + p.req + ' 次</title>';
   }
 
   // x 轴基线画在柱子之后，避免压在柱底
