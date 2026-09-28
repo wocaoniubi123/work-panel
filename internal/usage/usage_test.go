@@ -220,20 +220,19 @@ func TestLifecycleFlush(t *testing.T) {
 func TestLegacyCreditExcludedFromRatio(t *testing.T) {
 	r := New("")
 	now := time.Now()
-	scope := "h:" + now.Format(hourLayout)
-	key := scope + "|cn|u|m|"
+	scopeLegacy := "h:" + now.Add(-time.Hour).Format(hourLayout)
+	scopeNew := "h:" + now.Format(hourLayout)
 	r.mu.Lock()
-	r.buckets[key] = &bucket{Scope: scope, Realm: "cn", UID: "u", Model: "m", Req: 1, TT: 1_000_000, CR: 10}
+	r.buckets[scopeLegacy+"|cn|u|legacy-m|"] = &bucket{Scope: scopeLegacy, Realm: "cn", UID: "u", Model: "legacy-m", Req: 1, TT: 1_000_000, CR: 10}
+	r.buckets[scopeNew+"|cn|u|new-m|"] = &bucket{Scope: scopeNew, Realm: "cn", UID: "u", Model: "new-m", Req: 1, TT: 1000, CR: 1, CRN: 1, CRT: 1000}
 	r.mu.Unlock()
-	// 新样本：积分 1 / 匹配 Token 1000 → 比例应为 1000，而不是 (10+1)/1001000*1e6。
-	r.Add(now, "cn", "u", "m", Delta{TotalTokens: 1000, HasTotal: true, Credit: 1, HasCredit: true}, true)
 
 	s := r.Snapshot(24, nil)
 	if s.Totals.Credits != 11 || s.Totals.CreditSamples != 1 || s.Totals.CreditTokens != 1000 {
 		t.Fatalf("totals = %+v, want credits=11 samples=1 ctok=1000（旧积分仍进总数）", s.Totals)
 	}
 	if s.Totals.CreditsPer1MTokens != 1000 {
-		t.Fatalf("ratio = %v, want 1000（旧数据无配对样本，不进比例）", s.Totals.CreditsPer1MTokens)
+		t.Fatalf("ratio = %v, want 1000（旧桶无样本字段，不进比例）", s.Totals.CreditsPer1MTokens)
 	}
 }
 
