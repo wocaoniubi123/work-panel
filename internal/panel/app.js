@@ -494,7 +494,7 @@ function requestLogText(e) {
     e && e.model || '—',
     e && e.account || '—',
     fmtMs(e && e.duration_ms),
-    fmtTok(token) + ' tok',
+    fmtTokShort(token) + ' tok',
     credit,
     e && e.request_id || '—',
   ].join(' | ');
@@ -1333,6 +1333,15 @@ function fmtTok(n) {
   n = Number(n || 0);
   if (n >= 1e8) return (n / 1e8).toFixed(2) + '亿';
   return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+/* fmtTokShort 千/百万/十亿缩写（如 2.3k / 1.20M / 2.00B）：请求日志行等紧凑展示专用。
+   用量页保持 fmtTok 全量数字（口径不同，刻意分开）。 */
+function fmtTokShort(n) {
+  n = Number(n || 0);
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+  return String(n);
 }
 function fmtMs(ms) {
   ms = Number(ms || 0);
