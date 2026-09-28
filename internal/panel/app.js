@@ -127,6 +127,10 @@ $('keyInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnKe
 
 /* ── 路由 ─────────────────────────────────────────────────────────── */
 const TITLES = { accounts: '账号池', usage: '用量', packages: '积分构成', taskscenter: '任务中心', models: '模型与档位', config: '配置', logs: '运行日志' };
+// 用量页定时刷新状态：必须在 go() 首次执行前声明——let 不提升，若地址栏直接开
+// #usage，go() 会在这些声明求值前就调用 usAutoStart。
+let usTimer = null;
+let usBusy = false;
 function go(v) {
   view = v;
   document.querySelectorAll('.view').forEach(s => s.hidden = s.id !== 'view-' + v);
@@ -135,7 +139,7 @@ function go(v) {
   if (v === 'models' && !$('mdBody').children.length) loadModels();
   if (v === 'config') loadConfig();
   if (v === 'logs') loadLogs();
-  if (v === 'usage') loadUsage();
+  if (v === 'usage') { loadUsage(); usAutoStart(); } else { usAutoStop(); }
   if (v === 'packages') loadPackages();
   if (v === 'taskscenter') reattachQueueView();
 }
@@ -1456,21 +1460,35 @@ function usWinBtn() {
   return host.querySelector('.chip.on') || host.querySelector('.chip');
 }
 
+/* usAutoTick/Start/Stop：用量页定时自动刷新（下拉 1/5/10 秒，默认 1 秒）。
+   启停挂在路由 go()：进入用量页开、离开即停，不在后台空转。 */
+function usAutoTick() { return Math.max(1, Number($('usAuto') && $('usAuto').value) || 1) * 1000; }
+function usAutoStop() { if (usTimer) { clearInterval(usTimer); usTimer = null; } }
+function usAutoStart() {
+  usAutoStop();
+  usTimer = setInterval(loadUsage, usAutoTick());
+}
+
 async function loadUsage() {
-  // 「今日」折算成「当前小时数 + 1」的最近 N 小时：后端按服务器本地时区整点分桶，
-  // 同机访问时窗口起点恰为今天 0 点，且天然不含昨天（未来的桶不存在）。
-  const wb = usWinBtn();
-  let hours = wb ? wb.dataset.h : '72';
-  if (hours === 'today') hours = new Date().getHours() + 1;
+  if (usBusy) return; // 上一轮还没返回（1 秒档常见）：跳过本轮，避免请求堆叠
+  usBusy = true;
   try {
+    // 「今日」折算成「当前小时数 + 1」的最近 N 小时：后端按服务器本地时区整点分桶，
+    // 同机访问时窗口起点恰为今天 0 点，且天然不含昨天（未来的桶不存在）。
+    const wb = usWinBtn();
+    let hours = wb ? wb.dataset.h : '72';
+    if (hours === 'today') hours = new Date().getHours() + 1;
     const d = await api('usage?hours=' + encodeURIComponent(hours));
     renderUsage(d);
   } catch (e) {
     $('usChart').innerHTML = '<div class="us-empty">读取用量失败：' + esc(e.message) + '</div>';
+  } finally {
+    usBusy = false;
   }
 }
 
 if ($('btnUsage')) $('btnUsage').onclick = loadUsage;
+if ($('usAuto')) $('usAuto').onchange = usAutoStart; // 换档 = 重置计时器
 if ($('usWindow')) $('usWindow').addEventListener('click', ev => {
   const b = ev.target.closest('button[data-h]');
   if (!b) return;
