@@ -188,7 +188,7 @@ label.fld > .hint { display: block; font-size: 11.5px; color: var(--ink-3); marg
 @media (max-width: 980px) { .stats { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 560px) { .stats { grid-template-columns: repeat(2, 1fr); } }
 /* 用量统计条 7 卡（比总览多一项）：id 选择器只作用于用量页，不波及总览的 6 卡。 */
-#usStats { grid-template-columns: repeat(7, 1fr); }
+#usStats { grid-template-columns: repeat(8, 1fr); }
 @media (max-width: 1180px) { #usStats { grid-template-columns: repeat(4, 1fr); } }
 @media (max-width: 980px) { #usStats { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 560px) { #usStats { grid-template-columns: repeat(2, 1fr); } }
@@ -199,6 +199,16 @@ label.fld > .hint { display: block; font-size: 11.5px; color: var(--ink-3); marg
 .stat.credit .v { color: var(--credit); }
 /* 全量数字比 K/M 长一截：≥9 字符（9,999,999 起）降一档字号，保证多列卡片不顶破格子。 */
 .stat .v.long { font-size: 20px; letter-spacing: -.03em; }
+/* 用量页「使用状态」卡（第 2 格）：呼吸灯 + 名字（+空闲时长）。
+   绿灯=使用中；黄灯=空闲·最近；灰灯=数据不可达。名字/时间完整，放不下自然折行。 */
+#usLive { font-size: 11.5px; line-height: 1.7; font-weight: 500; color: var(--ink);
+  white-space: normal; overflow-wrap: break-word; }
+#usLive .lamp { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  margin-right: 5px; vertical-align: .5px; animation: usPulse 1.6s ease-in-out infinite; }
+#usLive .lamp.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+#usLive .lamp.idle { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+#usLive .lamp.off { background: var(--ink-3); animation: none; }
+@keyframes usPulse { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
 
 /* ── 面板块 ───────────────────────────────────────────────────────── */
 .box { background: var(--surface); border: 1px solid var(--line); border-radius: 11px; box-shadow: var(--shadow); margin-bottom: 20px; overflow: hidden; }

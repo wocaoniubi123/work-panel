@@ -1415,6 +1415,7 @@ function renderUsage(d) {
   const t = d.totals || {};
   $('usStats').innerHTML =
     usStat(fmtCredit(t.credits), '消耗积分 · 均 ' + fmtCreditRatio(t.credits_per_1m_tokens, t.credit_samples, t.credit_tokens), 'credit') +
+    '<div class="stat"><div id="usLive">—</div></div>' +
     usStat(fmtTok(t.requests), '请求数') +
     usStat(fmtTok(t.total_tokens), '总 token') +
     usStat(fmtTok(t.prompt_tokens), '输入') +
@@ -1452,6 +1453,50 @@ function renderUsage(d) {
     usRow(x.key, '', x, '', false)).join('') || '<tr><td colspan="9" class="empty">暂无数据</td></tr>';
 
   renderUsageChart(d.series || []);
+}
+
+/* usLiveAgo 空闲时长档位：<1 分钟「刚刚」→ x 分钟前 → x 小时前 → 昨天 / x 天前。 */
+function usLiveAgo(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return '刚刚';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + ' 分钟前';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + ' 小时前';
+  const d = Math.floor(h / 24);
+  return d === 1 ? '昨天' : d + ' 天前';
+}
+
+/* renderUsageLive 渲染「使用状态」卡（用量页第 2 格）：
+   绿灯=使用中（overview 里 in_flight>0 的账号，多号顿号并列）；
+   黄灯=空闲（取 token_usage.last_used_at 最近的账号 + 空闲时长）。
+   名字/时间完整显示，格子放不下自然折行；overview 拉不到时灰灯「—」。 */
+function renderUsageLive(ov) {
+  const host = $('usLive');
+  if (!host) return;
+  let html = '<span class="lamp off"></span><span>—</span>';
+  const accounts = (ov && ov.accounts) || [];
+  if (ov) {
+    const running = accounts.filter(a => (a.in_flight || 0) > 0);
+    if (running.length) {
+      const names = running.map(a => a.nickname || String(a.uid).slice(0, 8));
+      html = '<span class="lamp on"></span><span>' + esc(names.join('、')) + '</span>';
+    } else {
+      let best = null;
+      accounts.forEach(a => {
+        const t = a.token_usage && a.token_usage.last_used_at;
+        const ts = t ? Date.parse(t) : NaN;
+        if (!Number.isNaN(ts) && (!best || ts > best.ts)) {
+          best = { ts: ts, name: a.nickname || String(a.uid).slice(0, 8) };
+        }
+      });
+      if (best) {
+        html = '<span class="lamp idle"></span><span>' + esc(best.name) + '</span>' +
+               '<span class="ltime">（' + esc(usLiveAgo(Date.now() - best.ts)) + '）</span>';
+      }
+    }
+  }
+  host.innerHTML = html;
 }
 
 /* renderUsageChart 画堆叠柱状图。
@@ -1616,8 +1661,12 @@ async function loadUsage() {
     const wb = usWinBtn();
     let hours = wb ? wb.dataset.h : '72';
     if (hours === 'today') hours = new Date().getHours() + 1;
-    const d = await api('usage?hours=' + encodeURIComponent(hours));
+    const [d, ov] = await Promise.all([
+      api('usage?hours=' + encodeURIComponent(hours)),
+      api('overview').catch(() => null), // 使用状态卡数据源；单独失败不拖累用量刷新
+    ]);
     renderUsage(d);
+    renderUsageLive(ov);
   } catch (e) {
     $('usChart').innerHTML = '<div class="us-empty">读取用量失败：' + esc(e.message) + '</div>';
   } finally {
