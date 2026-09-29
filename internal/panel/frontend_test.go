@@ -240,7 +240,7 @@ vm.runInContext(
   ctx
 );
 const time = new Date(2026, 8, 28, 14, 5, 6).toISOString();
-const good = { time, status: 200, outcome: 'success', model: 'glm-5.3', account: '账号(uid8)', duration_ms: 1250, total_tokens: 2300, credit_known: true, credit: 0.12, request_id: 'req-1' };
+const good = { time, status: 200, outcome: 'success', model: 'glm-5.3', account: '账号(uid8)', duration_ms: 1250, total_tokens: 2300, credit_known: true, credit: 0.12, effort: 'high', request_id: 'req-1' };
 const bad = { ...good, status: 500, outcome: 'http_error', request_id: 'req-2' };
 process.stdout.write(JSON.stringify({
   good: ctx.requestLogText(good),
@@ -259,10 +259,10 @@ process.stdout.write(JSON.stringify({
 	if err != nil {
 		t.Fatalf("request log formatting node test failed: %v\n%s", err, out)
 	}
-	const text = "14:05:06 | 200 成功 | glm-5.3 | 账号(uid8) | 1.25s | 2.3k tok | 0.12 credit | req-1"
+	const text = "14:05:06 | 200 成功 | glm-5.3 | 账号(uid8) | 1.25s | 2.3k tok | 0.12 credit | req-1 | 思考=high"
 	want := `{"good":` + strconv.Quote(text) +
 		`,"goodLine":` + strconv.Quote(`<span class="ln">`+text+`</span>`) +
-		`,"badLine":` + strconv.Quote(`<span class="ln e">14:05:06 | 500 HTTP 错误 | glm-5.3 | 账号(uid8) | 1.25s | 2.3k tok | 0.12 credit | req-2</span>`) + `}`
+		`,"badLine":` + strconv.Quote(`<span class="ln e">14:05:06 | 500 HTTP 错误 | glm-5.3 | 账号(uid8) | 1.25s | 2.3k tok | 0.12 credit | req-2 | 思考=high</span>`) + `}`
 	if strings.TrimSpace(string(out)) != want {
 		t.Fatalf("request log formatting=%s want %s", out, want)
 	}

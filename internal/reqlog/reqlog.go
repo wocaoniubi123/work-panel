@@ -61,6 +61,7 @@ type Event struct {
 	Path             string    `json:"path"`
 	Account          string    `json:"account,omitempty"`
 	Model            string    `json:"model,omitempty"`
+	Effort           string    `json:"effort,omitempty"` // 最终生效思考档位（降级/补默认后）；空=未知
 	Status           int       `json:"status"`
 	OK               bool      `json:"ok"`
 	Outcome          string    `json:"outcome"`

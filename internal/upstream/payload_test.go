@@ -6,6 +6,27 @@ import (
 	"testing"
 )
 
+// TestPrepareBodyEffortReportsFinal 验证「最终生效思考档位」的回报：
+// 降级后的值、补默认档的值、确实无档位时的空串。
+func TestPrepareBodyEffortReportsFinal(t *testing.T) {
+	// max 不被支持 → 降级到 ≤max 的最高支持档 high，并回报最终值。
+	_, eff := prepareBodyEffort([]byte(`{"model":"deepseek-v4.1-flash","reasoning_effort":"max"}`), false,
+		map[string][]string{"deepseek-v4.1-flash": {"high"}}, nil)
+	if eff != "high" {
+		t.Fatalf("降级后档位 = %q, want high", eff)
+	}
+	// deepseek 缺档 → 补模型默认档 high。
+	_, eff2 := prepareBodyEffort([]byte(`{"model":"deepseek-v4.1-flash"}`), false, nil,
+		map[string]string{"deepseek-v4.1-flash": "high"})
+	if eff2 != "high" {
+		t.Fatalf("补默认档 = %q, want high", eff2)
+	}
+	// 非 deepseek 且未携带 → 空串（显示 "-"）。
+	if _, eff3 := prepareBodyEffort([]byte(`{"model":"glm-5.2"}`), false, nil, nil); eff3 != "" {
+		t.Fatalf("无档位 = %q, want 空", eff3)
+	}
+}
+
 // TestNormalizeRoles 验证出站请求体把 developer 角色归一为 system。
 // 上游 role 白名单不含 developer（OpenAI 新规范的 system 别名），
 // 命中即 HTTP 400 code=11128；此处走 PrepareBodyOptWithEfforts 全链路断言。

@@ -497,6 +497,7 @@ function requestLogText(e) {
     fmtTokShort(token) + ' tok',
     credit,
     e && e.request_id || '—',
+    '思考=' + (e && e.effort ? esc(String(e.effort)) : '-'),
   ].join(' | ');
 }
 

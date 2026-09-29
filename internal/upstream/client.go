@@ -781,9 +781,10 @@ func (c *Client) chatBase(a *auth.Auth) string {
 	return c.ChatBaseCN
 }
 
-// prepareBody 组装出站请求体（脱敏开关由 Client.SanitizeFingerprints 控制）。
+// prepareBody 组装出站请求体（脱敏开关由 Client.SanitizeFingerprints 控制），
+// 并返回最终生效的思考档位（降级/补默认后；缺失为空串），供请求日志记录。
 // realm 为账号 Realm()（cn/global），供 efforts 缓存分桶（跨域 effort 集合不互相污染）。
-func (c *Client) prepareBody(body []byte, realm, uid, conversationID string) []byte {
+func (c *Client) prepareBody(body []byte, realm, uid, conversationID string) ([]byte, string) {
 	efforts, defs := c.effortsSnapshot(realm), c.defaultEffortsSnapshot(realm)
 	if realmKey(realm) == "global" {
 		// global 域降级源 = 远端探测桶（权威）∪ 产品静态兜底表（全局 21 名内档位如
@@ -791,11 +792,11 @@ func (c *Client) prepareBody(body []byte, realm, uid, conversationID string) []b
 		//（issue #84：往 WorkBuddy 上游发 low/max 非法，须降级到 high）。
 		efforts, defs = globalEffortMap(efforts, defs)
 	}
-	body = PrepareBodyOptWithEffortsAndDefault(body, c.SanitizeFingerprints.Load(), efforts, defs)
+	body, effort := prepareBodyEffort(body, c.SanitizeFingerprints.Load(), efforts, defs)
 	// prompt_cache_key 注入（P0 费用优化，费用降 ~17×）：按账号隔离的稳定缓存键，
 	// 让同一客户端对同一账号的连续请求命中上游前缀缓存。
 	body = InjectPromptCacheKey(body, uid, conversationID)
-	return body
+	return body, effort
 }
 
 // effortsSnapshot 返回 effort 能力缓存副本；nil 表示未知（透传不降级）。
@@ -997,7 +998,7 @@ func (c *Client) ChatStream(a *auth.Auth, body []byte, clientIP string, meta Cha
 	return c.ChatStreamContext(context.Background(), a, body, clientIP, meta)
 }
 
-// ChatStreamContext 同 ChatStream，但从 ctx 派生请求 context：调用方（handler）传入
+// ChatStreamContextEffort 同 ChatStream，但从 ctx 派生请求 context：调用方（handler）传入
 // r.Context() 后，客户端断连/请求取消会立即中断在途上游调用、释放连接与账号在途名额，
 // 不再空转到 IdleTimeout。ctx 为 nil 时回落 Background。成功流的 cancel 仍由
 // monitorBody 的 Close 接管（reqCtx 取消与显式 Close 任一触发即断）。
@@ -1014,11 +1015,14 @@ func (c *Client) ChatStream(a *auth.Auth, body []byte, clientIP string, meta Cha
 // 全局脚本：首条消息非 system 时前置兜底 system（防 console 域上游 code 11-128；
 // #119 后 global 出站固定 /v2，该兜底保留——上游对 /v2 是否需要 system 无实测
 // 反证，删了无回滚路径）。
-func (c *Client) ChatStreamContext(ctx context.Context, a *auth.Auth, body []byte, clientIP string, meta ChatMeta) (rc io.ReadCloser, status int, respBody []byte, err error) {
+// ChatStreamContextEffort 额外返回最终生效的思考档位（降级/补默认后；缺失为空串），
+// 供 handler 记录请求日志/请求指标。既有调用方请继续用 ChatStreamContext（丢弃档位）。
+func (c *Client) ChatStreamContextEffort(ctx context.Context, a *auth.Auth, body []byte, clientIP string, meta ChatMeta) (rc io.ReadCloser, status int, respBody []byte, effort string, err error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	prepared := c.prepareBody(body, a.Realm(), a.UID, meta.ConversationID)
+	var prepared []byte
+	prepared, effort = c.prepareBody(body, a.Realm(), a.UID, meta.ConversationID)
 	if c.globalOn(a) {
 		prepared = ensureConsoleSystem(prepared)
 	}
@@ -1029,7 +1033,7 @@ func (c *Client) ChatStreamContext(ctx context.Context, a *auth.Auth, body []byt
 		endpoint := c.chatBase(a) + path
 		req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(prepared))
 		if err != nil {
-			return nil, 0, nil, err
+			return nil, 0, nil, effort, err
 		}
 		c.ChatHeaders(req, a, clientIP, meta)
 		// 从调用方 ctx 派生：保留取消传播（父 ctx 取消 → 本 ctx 取消），
@@ -1044,7 +1048,7 @@ func (c *Client) ChatStreamContext(ctx context.Context, a *auth.Auth, body []byt
 			// 留在空闲池里，下一个请求会继续捡到它——仅靠 IdleConnTimeout 等过期
 			// 不够，主动清池才断根。
 			roundTripCloseIdle(c.chatHTTP().Transport)
-			return nil, 0, nil, err
+			return nil, 0, nil, effort, err
 		}
 		if resp.StatusCode >= 400 {
 			raw, rerr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -1054,7 +1058,7 @@ func (c *Client) ChatStreamContext(ctx context.Context, a *auth.Auth, body []byt
 			// 否则 handler 侧 applyErrorPolicy 会按误判分类罚号。
 			if rerr != nil {
 				log.Printf("ERR: [upstream] chat_stream acct=%s: read body: %v", logfmt.Label(a.UID, a.Nickname), rerr)
-				return nil, 0, nil, fmt.Errorf("read body: %w", rerr)
+				return nil, 0, nil, effort, fmt.Errorf("read body: %w", rerr)
 			}
 			kind := Classify(resp.StatusCode, string(raw))
 			log.Printf("WARN: [upstream] chat_stream acct=%s: upstream %d %s body=%s",
@@ -1063,20 +1067,26 @@ func (c *Client) ChatStreamContext(ctx context.Context, a *auth.Auth, body []byt
 			// 分类一次、随 Kind 信封返回（含 Retry-After 头解析）：
 			// ErrNone 是防御分支（≥400 不应产生 None），返回原文让 handler 兜底。
 			if kind == ErrNone {
-				return nil, resp.StatusCode, raw, nil
+				return nil, resp.StatusCode, raw, effort, nil
 			}
 			ue := &Error{Kind: kind, Status: resp.StatusCode, Msg: truncate(string(raw), 200)}
 			if d, ok := ParseRetryAfter(resp.Header); ok {
 				ue.RetryAfter = d
 			}
-			return nil, resp.StatusCode, raw, ue
+			return nil, resp.StatusCode, raw, effort, ue
 		}
 		// 成功分支：cancel 所有权交给 monitorBody（其 Close 会 cancel）；
 		// IdleTimeout<=0 时 monitorBody 原样返回底流、无人调 cancel——可接受：
 		// 取消传播由 http.Transport 在 body Close / 父 ctx 取消时处理，连接正常清理。
-		return monitorBody(resp.Body, c.IdleTimeout, cancel), resp.StatusCode, nil, nil
+		return monitorBody(resp.Body, c.IdleTimeout, cancel), resp.StatusCode, nil, effort, nil
 	}
 	panic("unreachable: chatPaths is never empty") // for range 空集时编译器仍要求兜底 return；chatPaths 恒非空（构造保证），永不触达
+}
+
+// ChatStreamContext 兼容入口：等价 ChatStreamContextEffort，但丢弃思考档位。
+func (c *Client) ChatStreamContext(ctx context.Context, a *auth.Auth, body []byte, clientIP string, meta ChatMeta) (rc io.ReadCloser, status int, respBody []byte, err error) {
+	rc, status, respBody, _, err = c.ChatStreamContextEffort(ctx, a, body, clientIP, meta)
+	return
 }
 
 // ModelInfo 动态模型信息（含 maxInputTokens/maxOutputTokens + 上游模型对象全字段）。

@@ -47,6 +47,7 @@ type chatStat struct {
 	attempts         int
 	credit           float64
 	hasCredit        bool
+	effort           string // 最终生效思考档位（降级/补默认后）；空串=未知
 	promptTokens     int64
 	completionTokens int64
 	totalTokens      int64
@@ -70,7 +71,7 @@ func (s *chatStat) done() {
 	}
 	s.logged = true
 	logChatRowEx(s.ttfb, time.Since(s.start), s.model, s.mode, s.uid, s.nick, s.status, s.toks,
-		s.requestID, s.outcome, s.attempts, s.credit, s.hasCredit)
+		s.requestID, s.outcome, s.attempts, s.credit, s.hasCredit, s.effort)
 }
 
 // chatStatsReader 在流式透传时抓取 SSE 末帧的 usage.completion_tokens 精确值，
@@ -319,6 +320,7 @@ func (t *requestTrace) event(status int) reqlog.Event {
 		s := t.stat
 		e.Account = logfmt.Label(s.uid, s.nick)
 		e.Model = s.model
+		e.Effort = s.effort
 		e.Outcome = s.outcome
 		e.TTFBMs = s.ttfb.Milliseconds()
 		e.Attempts = s.attempts
@@ -390,13 +392,13 @@ const (
 //     uid8 时人眼无法判断是哪个号，要辨认必须再查 auths/，排障多一跳；
 //   - toks<0 表示 usage 缺失，显示 "-"。
 func logChatRow(ttfb, total time.Duration, model, mode, uid, nick string, status int, toks int) {
-	logChatRowEx(ttfb, total, model, mode, uid, nick, status, toks, "", "", 0, 0, false)
+	logChatRowEx(ttfb, total, model, mode, uid, nick, status, toks, "", "", 0, 0, false, "")
 }
 
 // logChatRowEx 是带请求 ID、结果、重试和积分字段的扩展流水行。旧调用保持原格式；
 // requestID 非空时才追加扩展字段。
 func logChatRowEx(ttfb, total time.Duration, model, mode, uid, nick string, status int, toks int,
-	requestID, outcome string, attempts int, credit float64, hasCredit bool) {
+	requestID, outcome string, attempts int, credit float64, hasCredit bool, effort string) {
 	if !chatLogEnabled {
 		return
 	}
@@ -432,7 +434,18 @@ func logChatRowEx(ttfb, total time.Duration, model, mode, uid, nick string, stat
 		}
 		extra = fmt.Sprintf(" rid=%s | out=%s | try=%d | credit=%s |", requestID, outcome, attempts, creditField)
 	}
-	fmt.Fprintf(chatLogOut, "| #%03d | %s | %s | %s | %d | %s | TTFB=%s | tok=%s | %s | total=%.1fs |%s\n",
+	// 「思考=档位」列：本地取最终生效档位（降级/补默认后）；防换行/超长，缺失显 "-"。
+	effort = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' {
+			return ' '
+		}
+		return r
+	}, effort)
+	effort = logfmt.Truncate(effort, 12)
+	if effort == "" {
+		effort = "-"
+	}
+	fmt.Fprintf(chatLogOut, "| #%03d | %s | %s | %s | %d | %s | TTFB=%s | tok=%s | %s | total=%.1fs |%s 思考=%s\n",
 		seq,
 		time.Now().Format("15:04:05"),
 		model,
@@ -444,5 +457,6 @@ func logChatRowEx(ttfb, total time.Duration, model, mode, uid, nick string, stat
 		logfmt.Pad(tokpsField, chatRateWidth),
 		total.Seconds(),
 		extra,
+		effort,
 	)
 }

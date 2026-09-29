@@ -28,12 +28,20 @@ func PrepareBodyOptWithEfforts(src []byte, sanitize bool, efforts map[string][]s
 // defaultEfforts（模型声明默认档）补档。defaultEfforts 为 nil 时与旧行为一致
 // （deepseek 缺档回退硬编码 high）。
 func PrepareBodyOptWithEffortsAndDefault(src []byte, sanitize bool, efforts map[string][]string, defaultEfforts map[string]string) []byte {
+	out, _ := prepareBodyEffort(src, sanitize, efforts, defaultEfforts)
+	return out
+}
+
+// prepareBodyEffort 同 PrepareBodyOptWithEffortsAndDefault，但额外返回「最终生效的
+// 思考档位」（降级/补默认之后的值；缺失为空串）——供运行日志/请求指标的「思考=」
+// 记录。纯本地内存取值，不增加任何上游交互。
+func prepareBodyEffort(src []byte, sanitize bool, efforts map[string][]string, defaultEfforts map[string]string) ([]byte, string) {
 	if len(src) == 0 {
-		return src
+		return src, ""
 	}
 	var obj map[string]any
 	if err := json.Unmarshal(src, &obj); err != nil {
-		return src
+		return src, ""
 	}
 	obj["stream"] = true
 	// max_completion_tokens → max_tokens 翻译（吸收上游 PR #116，Closes #117）：
@@ -79,9 +87,20 @@ func PrepareBodyOptWithEffortsAndDefault(src []byte, sanitize bool, efforts map[
 	}
 	out, err := json.Marshal(obj)
 	if err != nil {
-		return src
+		return src, ""
 	}
-	return out
+	return out, effortOf(obj)
+}
+
+// effortOf 读取「最终生效的思考档位」：reasoning_effort（snake）优先，reasoningEffort
+// （camel）兜底；缺失/空串 → 空串（调用方显示为「-」）。
+func effortOf(obj map[string]any) string {
+	for _, k := range []string{"reasoning_effort", "reasoningEffort"} {
+		if v, ok := obj[k].(string); ok && strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }
 
 // translateMaxCompletionTokens 把 OpenAI 别名 max_completion_tokens 翻译为上游

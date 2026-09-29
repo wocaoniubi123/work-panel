@@ -206,7 +206,7 @@ func TestLogChatRowFormat(t *testing.T) {
 		logChatRow(412*time.Millisecond, 27100*time.Millisecond, "deepseek-v4-flash", "stream", "00e26541abcdef", "示例号", http.StatusOK, 1234)
 	})
 	for _, want := range []string{
-		"| #", "deepseek-v4", "| stream |", "| 200 |", "示例号(00e26541)", "TTFB=412ms", "tok=1234", "tok/s   |", "total=",
+		"| #", "deepseek-v4", "| stream |", "| 200 |", "示例号(00e26541)", "TTFB=412ms", "tok=1234", "tok/s   |", "total=", "思考=-",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("row missing %q:\n%s", want, out)
@@ -233,9 +233,9 @@ func TestLogChatRowExtendedFields(t *testing.T) {
 	withChatLog(t)
 	out := captureStdout(t, func() {
 		logChatRowEx(10*time.Millisecond, 2*time.Second, "glm-5.3", "stream", "u123456789", "示例号",
-			http.StatusOK, 42, "req-abc123", reqlog.OutcomeSuccess, 2, 1.25, true)
+			http.StatusOK, 42, "req-abc123", reqlog.OutcomeSuccess, 2, 1.25, true, "high")
 	})
-	for _, want := range []string{"rid=req-abc123", "out=success", "try=2", "credit=1.2500"} {
+	for _, want := range []string{"rid=req-abc123", "out=success", "try=2", "credit=1.2500", "思考=high"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("extended row missing %q:\n%s", want, out)
 		}
