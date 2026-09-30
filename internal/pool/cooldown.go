@@ -106,9 +106,10 @@ func (p *Pool) Cooldown(uid string, kind CoolKind, d time.Duration, reason strin
 // CooldownSoftForModel 429 的**模型级**软冷却入口（issue #31）：把该模型的冷却截止
 // 精确对齐到上游重置墙钟（不做指数堆加、不做 softStreak 计数）。
 //
-//   - resetAt 非零（带解析时间）→ modelCooldowns[model].Until = min(resetAt,
-//     now+softRateMax)，ResetAt 记录上游原始墙钟（台账 ResetAt）。不写 until
-//     （全账号级冷却不受模型级限流污染），切模型即可用（模型豁免）。
+//   - resetAt 非零（带解析时间）→ modelCooldowns[model].Until = resetAt（**按上游
+//     官方重置时间，不提前探测**；仅超过 24h 防呆上限时钳制），ResetAt 记录上游原始
+//     墙钟（截断时才随台账透出）。不写 until（全账号级冷却不受模型级限流污染），
+//     切模型即可用（模型豁免）。
 //   - resetAt 零值（无时间文案）→ 有界退避：base 起按 softStreak 翻倍、封顶
 //     softRateMax，且**在软冷却中**（until 未到期）时不推进/不延长（兜底探测不再把
 //     冷却越堆越厚）。不记录模型（不豁免）。
@@ -121,12 +122,12 @@ func (p *Pool) CooldownSoftForModel(uid string, base time.Duration, resetAt time
 	if e, ok := p.byUID[uid]; ok {
 		now := time.Now()
 		if !resetAt.IsZero() {
-			// 有上游重置时间：冷却截止 = min(resetAt, now+softRateMax)，不做指数放大。
+			// 有上游重置时间：冷却截止 = 官方重置时间（不提前探；>24h 防呆钳制），不做指数放大。
 			if e.modelCooldowns == nil {
 				e.modelCooldowns = map[string]modelCooldown{}
 			}
 			e.modelCooldowns[model] = modelCooldown{
-				Until:   p.cappedSoftUntilLocked(now, resetAt),
+				Until:   p.honorResetUntilLocked(now, resetAt),
 				ResetAt: resetAt,
 				Reason:  reason,
 			}
@@ -271,7 +272,7 @@ func (p *Pool) BlockModelClear(uid, model string) {
 //
 // 语义：
 //   - resetAt 非零（上游带权威重置时间，无论 6004 还是 11140 rate-limiting）→
-//     账号级直到该墙钟（截断到 softRateMax，绝不指数堆加）；**不**在
+//     账号级直到该墙钟（**按官方时间，仅 >24h 防呆钳制**，绝不指数堆加）；**不**在
 //     modelCooldowns 记模型（账号级语义，不产生切模型豁免——普通账号级限流不该
 //     因切模型绕过）。
 //   - resetAt 零值且**不在冷却中**（首次/恢复后的新限流）→ 有界退避：按 softStreak
@@ -286,7 +287,7 @@ func (p *Pool) CooldownSoftRate(uid string, base time.Duration, resetAt time.Tim
 	if e, ok := p.byUID[uid]; ok {
 		now := time.Now()
 		if !resetAt.IsZero() {
-			e.until = p.cappedSoftUntilLocked(now, resetAt)
+			e.until = p.honorResetUntilLocked(now, resetAt)
 		} else if e.coolKind != CoolSoft || !now.Before(e.until) {
 			// 新限流（不在有效软冷却中）：推进有界退避；兜底探测（仍在软冷却中）不翻倍。
 			d := p.softDurationLocked(base, e.softStreak+1)
@@ -300,13 +301,17 @@ func (p *Pool) CooldownSoftRate(uid string, base time.Duration, resetAt time.Tim
 	}
 }
 
-// cappedSoftUntilLocked 把上游重置墙钟截断到 softRateMax（now+softRateMax 与 resetAt
-// 取较早者）。resetAt 已过期（时钟偏移/文案过期）时时长钳到时间零点附近，立即恢复。
-// 调用方必须已持有 p.mu。
-func (p *Pool) cappedSoftUntilLocked(now, resetAt time.Time) time.Time {
-	cap := now.Add(p.softRateMaxOr())
-	if resetAt.After(cap) {
-		return cap
+// resetHonorGuard resetAt 防呆上限：仅防"解析出异常远期时间"（文案变更/时钟异常）
+// 把账号或模型无限期拉黑；正常限流（小时级）碰不到。
+const resetHonorGuard = 24 * time.Hour
+
+// honorResetUntilLocked 以**上游官方重置墙钟**设冷却截止（不提前探测：官方说到几点
+// 就到几点）。仅当 resetAt 超过防呆上限（24h）时钳到 now+24h；resetAt 已过期
+// （时钟偏移/文案过期）钳到时间零点附近，立即恢复。调用方必须已持有 p.mu。
+func (p *Pool) honorResetUntilLocked(now, resetAt time.Time) time.Time {
+	guard := now.Add(resetHonorGuard)
+	if resetAt.After(guard) {
+		return guard
 	}
 	if resetAt.After(now) {
 		return resetAt
@@ -314,7 +319,7 @@ func (p *Pool) cappedSoftUntilLocked(now, resetAt time.Time) time.Time {
 	return now.Add(time.Millisecond)
 }
 
-// softRateMaxOr 返回生效的 softRateMax（未注入时按默认 2h），供封顶计算。
+// softRateMaxOr 返回生效的 softRateMax（未注入时按默认 2h），供无重置时间的退避封顶计算。
 // 调用方必须已持有 p.mu。
 func (p *Pool) softRateMaxOr() time.Duration {
 	if p.softRateMax > 0 {

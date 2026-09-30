@@ -41,7 +41,8 @@ type Config struct {
 		// 硬冷却固定为次日 04:00（CooldownUntilTomorrow4AM），连续错误语义并入熔断器。
 		// 旧 config 中的这些键因 JSON 未知字段而自然忽略，不报错。
 		SoftRate string `json:"soft_rate"` // "600s"，软限流冷却基数
-		// SoftRateMax 软冷却指数退避的封顶，默认 "2h"。
+		// SoftRateMax 无重置时间软冷却（指数退避）的封顶，默认 "2h"；
+		// 有上游重置时间时一律按官方时间（仅 >24h 防呆钳制），不使用此值。
 		// 空值回落默认，非法值报错（处理风格同 soft_rate）。
 		SoftRateMax string `json:"soft_rate_max"` // "2h"
 	} `json:"cooldown"`

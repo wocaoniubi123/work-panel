@@ -869,20 +869,36 @@ func TestCooldownSoftForModelParsedUntil(t *testing.T) {
 	}
 }
 
-func TestCooldownSoftForModelCappedBySoftRateMax(t *testing.T) {
-	// 解析时间超出 soft_rate_max → 截断到 soft_rate_max（不无限期拉黑）。
+func TestCooldownSoftForModelHonorsResetNotSoftMax(t *testing.T) {
+	// 官方重置时间内一律按官方时间（不再截断到 soft_rate_max）；仅 >24h 防呆钳制。
 	p := New("")
 	p.Add(&auth.Auth{UID: "u1"})
 	p.SetSoftRateMax(10 * time.Minute)
-	reset := time.Now().Add(2 * time.Hour) // 远超过封顶 10m
-	before := time.Now()
+	reset := time.Now().Add(2 * time.Hour)
 	p.CooldownSoftForModel("u1", 600*time.Second, reset, "glm-5.3", "429 rate limit")
 	st, _ := p.Status("u1")
 	if len(st.RateLimitedModels) != 1 {
 		t.Fatalf("want model ledger row: %+v", st.RateLimitedModels)
 	}
-	if st.RateLimitedModels[0].Until.Sub(before) > 10*time.Minute+time.Second {
-		t.Errorf("model until=%v want capped at soft_rate_max=10m", st.RateLimitedModels[0].Until)
+	if d := st.RateLimitedModels[0].Until.Sub(reset); d < -time.Second || d > time.Second {
+		t.Errorf("model until=%v want 按官方=%v（soft_rate_max 不应再截断）", st.RateLimitedModels[0].Until, reset)
+	}
+
+	// 超 24h 异常远期 → 防呆钳到 ~24h。
+	reset2 := time.Now().Add(30 * time.Hour)
+	p.CooldownSoftForModel("u1", 600*time.Second, reset2, "hy3-x", "429 rate limit")
+	st2, _ := p.Status("u1")
+	var got time.Time
+	for _, r := range st2.RateLimitedModels {
+		if r.Model == "hy3-x" {
+			got = r.Until
+		}
+	}
+	if got.IsZero() {
+		t.Fatal("want hy3-x ledger row")
+	}
+	if d := got.Sub(time.Now().Add(resetHonorGuard)); d < -time.Minute || d > time.Minute {
+		t.Errorf("model until=%v want ~24h 防呆钳制", got)
 	}
 }
 

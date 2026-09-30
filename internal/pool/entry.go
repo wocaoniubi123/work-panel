@@ -144,10 +144,10 @@ type RateLimitedModel struct {
 //   - 11102 该后端无此模型：Until 为指数退避 TTL（6h 起、封顶 24h）；Hits 记录
 //     累计命中次数驱动退避（6004 无 hits 概念，Hits 恒 0）。
 type modelCooldown struct {
-	// Until 该模型的冷却截止（6004：now+min(resetAt-now, soft_rate_max)；11102：now+退避 TTL）。
+	// Until 该模型的冷却截止（6004：按上游官方 resetAt，仅 >24h 防呆钳制；11102：now+退避 TTL）。
 	Until time.Time
-	// ResetAt 上游「将在 … 重置」的原始墙钟（未经 soft_rate_max 截断）。
-	// 与 Until 的区别同：Until 可能截断，ResetAt 是上游权威恢复时刻。
+	// ResetAt 上游「将在 … 重置」的原始墙钟。
+	// 与 Until 的区别：Until 仅在超 24h 防呆钳制时不同于 ResetAt（相同则随台账省略）。
 	// 11102 无重置文案，ResetAt 恒零值。
 	ResetAt time.Time
 	// Reason 触发原因（透出运维可读文案，同 Status.Reason）。
