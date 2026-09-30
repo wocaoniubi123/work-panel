@@ -2076,8 +2076,7 @@ function renderUsageChart(series) {
     return;
   }
 
-  // PL=72：y 轴刻度可能是 10 字符的千万级数字（10px 字号约 60px 宽），58 会截断。
-  const W = 1200, H = 200, PL = 72, PR = 14, PT = 18, PB = 30;
+  const W = 1200, H = 200, PL = 58, PR = 14, PT = 18, PB = 30;
   const iw = W - PL - PR, ih = H - PT - PB;
 
   const t0 = pts[0].t;
@@ -2088,8 +2087,8 @@ function renderUsageChart(series) {
   const peak = pts.reduce((a, b) => (b.tt > a.tt ? b : a), pts[0]);
   const avg = pts.reduce((s, p) => s + p.tt, 0) / pts.length;
   $('usChartNote').textContent =
-    pts.length + ' 个点 · 峰值 ' + fmtTok(peak.tt) + ' @ ' + fmtTokTimeLabel(peak) +
-    ' · 均值 ' + fmtTok(avg);
+    pts.length + ' 个点 · 峰值 ' + fmtTokShort(peak.tt) + ' @ ' + fmtTokTimeLabel(peak) +
+    ' · 均值 ' + fmtTokShort(avg);
 
   // 柱宽取「最小真实间隔」的 70%，并夹在合理区间内——窗口拉到 30 天时柱子会
   // 变细，但不会细到看不见。
@@ -2125,7 +2124,7 @@ function renderUsageChart(series) {
     out += '<line class="gl" x1="' + PL + '" y1="' + y.toFixed(1) + '" x2="' + (W - PR) +
            '" y2="' + y.toFixed(1) + '"/>';
     out += '<text class="tk" x="' + (PL - 6) + '" y="' + (y + 3.5).toFixed(1) +
-           '" text-anchor="end">' + fmtTok(max * i / 4) + '</text>';
+           '" text-anchor="end">' + fmtTokShort(max * i / 4) + '</text>';
   }
 
   // 均值参考线：一眼看出"这根是不是异常高"，比只给刻度省心。
@@ -2135,7 +2134,7 @@ function renderUsageChart(series) {
     out += '<line class="avg" x1="' + PL + '" y1="' + y.toFixed(1) + '" x2="' + (W - PR) +
            '" y2="' + y.toFixed(1) + '"/>';
     out += '<text class="tk-avg" x="' + (PL + 5) + '" y="' + (y - 4).toFixed(1) +
-           '" text-anchor="start">均值 ' + fmtTok(avg) + '</text>';
+           '" text-anchor="start">均值 ' + fmtTokShort(avg) + '</text>';
   }
 
   // 柱子
@@ -2154,8 +2153,8 @@ function renderUsageChart(series) {
     if (hC > 0) out += '<rect class="usbar" x="' + x.toFixed(2) + '" y="' + (yBase - hP - hC).toFixed(2) +
       '" width="' + bw.toFixed(2) + '" height="' + hC.toFixed(2) +
       '" fill="url(#usGradC)" rx="1.5"/>';
-    out += '<title>' + esc(p.raw) + '  ' + fmtTok(p.pt) + ' 输入 / ' +
-           fmtTok(p.ct) + ' 输出 / ' + p.req + ' 次</title>';
+    out += '<title>' + esc(p.raw) + '  ' + fmtTokShort(p.pt) + ' 输入 / ' +
+           fmtTokShort(p.ct) + ' 输出 / ' + p.req + ' 次</title>';
   }
 
   // 峰值标注：柱子够窄时文字压在柱顶，够宽时贴右侧避免和柱体重叠。
@@ -2165,7 +2164,7 @@ function renderUsageChart(series) {
     const anchor = px > W - PR - 90 ? 'end' : 'middle';
     out += '<text class="tk-peak" x="' + Math.max(PL, Math.min(W - PR, px)).toFixed(1) +
            '" y="' + Math.max(10, py - 5).toFixed(1) + '" text-anchor="' + anchor + '">' +
-           '峰值 ' + fmtTok(peak.tt) + '</text>';
+           '峰值 ' + fmtTokShort(peak.tt) + '</text>';
   }
 
   // x 轴基线画在柱子之后，避免压在柱底
