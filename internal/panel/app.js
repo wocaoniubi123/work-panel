@@ -1912,12 +1912,13 @@ function renderUsage(d) {
   const okRate = reqs ? (reqs - errs) / reqs * 100 : null;
   // 构成条要的是合法 CSS 宽度，usPct 在无样本时返回 "—"，不能直接拼进 style。
   const pctW = (part) => total ? Math.max(0, Math.min(100, Number(part || 0) / total * 100)).toFixed(2) + '%' : '0%';
-  // 七张卡（六张主指标 + 「使用状态」）：主指标用强调色，completion 用成功色
-  // （与图表里的绿柱呼应），失败/延迟只在有值时上语义色——全绿全黄的仪表盘等于没有重点。
+  // 八张卡（消耗积分 + 六张主指标 + 「使用状态」）：主指标用强调色，completion 用
+  // 成功色（与图表里的绿柱呼应），失败/延迟只在有值时上语义色——全绿全黄的仪表盘等于没有重点。
   $('usStats').innerHTML =
+    usKpi(fmtCredit(t.credits), '消耗积分 · 均 ' + fmtCreditRatio(t.credits_per_1m_tokens, t.credit_samples, t.credit_tokens), 'c-credit') +
+    '<div class="kpi"><div class="v" id="usLive">—</div></div>' +
     usKpi(fmtTok(reqs), '请求数', 'c-accent',
       errs ? '其中失败 ' + errs + ' 次' : '全部成功') +
-    '<div class="kpi"><div class="v" id="usLive">—</div></div>' +
     usKpi(fmtTok(total), '总 token', 'c-accent',
       '输入 ' + usPct(pt, total) + ' · 输出 ' + usPct(ct, total),
       '<div class="kbar"><i style="width:' + pctW(pt) + ';background:var(--accent)"></i>' +
@@ -2253,7 +2254,7 @@ async function loadUsage() {
 
 if ($('btnUsage')) $('btnUsage').onclick = loadUsage;
 // 时间范围控件绑定：任何改动（预设切换 / 自定义起止）都重新拉一次用量。
-if ($('usRange')) trangeBind('usRange', loadUsage);
+if ($('usRange')) trangeBind('usRange', loadUsage, 'today'); // 默认「今天」（与旧版用量页口径一致）
 if ($('usAuto')) $('usAuto').onchange = usAutoStart; // 换档 = 重置计时器
 
 /* ── 积分构成 ─────────────────────────────────────────────────────── */
