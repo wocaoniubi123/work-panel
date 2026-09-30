@@ -110,7 +110,7 @@ func TestCooldownSoftForModelHonorsResetTime(t *testing.T) {
 		t.Errorf("Until=%v want 按官方 %v（提前探已关闭、soft_rate_max 不再截断）", mc.Until, reset)
 	}
 
-	// 防呆：30h 异常远期 → 钳到 ~24h，ResetAt 保留原始墙钟（与 Until 不同才随台账透出）。
+	// 防呆：30h 异常远期 → 钳到 ~24h，ResetAt 保留原始墙钟（非零即随台账透出）。
 	reset2 := time.Now().Add(30 * time.Hour)
 	p.CooldownSoftForModel("u1", 600*time.Second, reset2, "hy3-x", "6004 model rate limit")
 	p.mu.RLock()

@@ -101,11 +101,17 @@ function rateLimitMeta(row, now) {
       title: model + '\n模型当前不可用' + (deadline ? '\n最早重试：' + fmtLocalDateTime(deadline) : ''),
     };
   }
-  let detail = resetAt
-    ? '预计 ' + fmtLocalDateTime(resetAt) + ' 解封' + (remaining ? '（剩余 ' + dur(remaining) + '）' : '')
-    : (until ? '预计 ' + fmtLocalDateTime(until) + ' 恢复（剩余 ' + dur(remaining) + '）' : '预计解封时间未知');
+  const earlyRetry = resetAt > 0 && until > 0 && until < resetAt;
+  let detail;
+  if (earlyRetry) {
+    detail = '预计 ' + fmtLocalDateTime(resetAt) + ' 解封' + (remaining ? '（剩余 ' + dur(remaining) + '）' : '');
+  } else if (deadline) {
+    detail = '预计 ' + fmtLocalDateTime(deadline) + ' 恢复（剩余 ' + dur(remaining) + '）';
+  } else {
+    detail = '预计解封时间未知';
+  }
   const title = [model, resetAt ? '上游重置：' + fmtLocalDateTime(resetAt) : '上游重置：时间未知'];
-  if (until && resetAt && until < resetAt) {
+  if (earlyRetry) {
     detail += ' · 网关最快 ' + dur(Math.max(0, Math.round((until - now) / 1000))) + ' 后重试';
     title.push('网关最早重试：' + fmtLocalDateTime(until));
   }

@@ -594,15 +594,14 @@ func (p *Pool) rateLimitedModelsLocked(e *entry, now time.Time) []RateLimitedMod
 				kind = "model_unavailable"
 			}
 			row := RateLimitedModel{
-				Model:  m,
-				Kind:   kind,
-				Until:  mc.Until,
-				Reason: mc.Reason,
+				Model:   m,
+				Kind:    kind,
+				Until:   mc.Until,
+				ResetAt: mc.ResetAt,
+				Reason:  mc.Reason,
 			}
-			// 上游原始重置墙钟：截断后 until==resetAt 时省略（omitempty），台账只显示真实恢复时刻。
-			if !mc.ResetAt.IsZero() && !mc.ResetAt.Equal(mc.Until) {
-				row.ResetAt = mc.ResetAt
-			}
+			// 上游原始重置墙钟：非零即照发（与 Until 相等也不例外）——前端按两个时刻
+			// 比较渲染单个/两个时段；悬浮提示直接展示该字段（缺省会误报「时间未知」）。
 			rows = append(rows, row)
 		}
 	}

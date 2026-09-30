@@ -883,6 +883,10 @@ func TestCooldownSoftForModelHonorsResetNotSoftMax(t *testing.T) {
 	if d := st.RateLimitedModels[0].Until.Sub(reset); d < -time.Second || d > time.Second {
 		t.Errorf("model until=%v want 按官方=%v（soft_rate_max 不应再截断）", st.RateLimitedModels[0].Until, reset)
 	}
+	// 台账行必须直接透出 reset_at（与 Until 相等也不例外）——悬浮提示依赖它。
+	if d := st.RateLimitedModels[0].ResetAt.Sub(reset); d < -time.Second || d > time.Second {
+		t.Errorf("row reset_at=%v want 透出官方 %v（相等也照发）", st.RateLimitedModels[0].ResetAt, reset)
+	}
 
 	// 超 24h 异常远期 → 防呆钳到 ~24h。
 	reset2 := time.Now().Add(30 * time.Hour)

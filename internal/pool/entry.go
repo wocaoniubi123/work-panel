@@ -131,8 +131,8 @@ type RateLimitedModel struct {
 	// Until 冷却到期时刻 = 该模型的独立冷却截止（modelCooldowns[m].Until，截断后），
 	// 多模型限流时不再等于 Status.Until（账号级）。
 	Until time.Time `json:"until,omitempty"`
-	// ResetAt 上游「将在 … 重置」的原始墙钟（未经 soft_rate_max 截断）；
-	// 截断后 Until==ResetAt 时省略 ResetAt 让台账自然减少一列。
+	// ResetAt 上游「将在 … 重置」的原始墙钟；非零即透出（与 Until 相等也不例外），
+	// 前端按两个时刻比较渲染单段/两段，悬浮提示直接展示该字段。
 	ResetAt time.Time `json:"reset_at,omitempty"`
 	// Reason 触发原因（运维可读文案）。
 	Reason string `json:"reason,omitempty"`
@@ -147,7 +147,7 @@ type modelCooldown struct {
 	// Until 该模型的冷却截止（6004：按上游官方 resetAt，仅 >24h 防呆钳制；11102：now+退避 TTL）。
 	Until time.Time
 	// ResetAt 上游「将在 … 重置」的原始墙钟。
-	// 与 Until 的区别：Until 仅在超 24h 防呆钳制时不同于 ResetAt（相同则随台账省略）。
+	// 与 Until 的区别：Until 仅在超 24h 防呆钳制时不同于 ResetAt（相同则照发、前端按比较渲染）。
 	// 11102 无重置文案，ResetAt 恒零值。
 	ResetAt time.Time
 	// Reason 触发原因（透出运维可读文案，同 Status.Reason）。

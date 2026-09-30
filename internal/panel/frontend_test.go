@@ -172,7 +172,8 @@ process.stdout.write(JSON.stringify({
 	}
 }
 
-// 模型限流时间必须同时支持上游 reset_at、网关 until 和无重置时间三种形态。
+// 模型限流时间必须同时支持三种形态：两时刻不重合（解封+网关最快）、两时刻重合
+// （单段恢复，仍透出上游时间供悬浮提示）、无重置时间（未知）。
 func TestAppJSRateLimitMeta(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -191,12 +192,16 @@ const now = new Date(2026, 8, 28, 14, 0, 0).getTime();
 const reset = new Date(2026, 8, 28, 16, 0, 0).getTime();
 const until = new Date(2026, 8, 28, 15, 0, 0).getTime();
 const rate = ctx.rateLimitMeta({ model: 'glm-5.3', kind: 'rate_limit', reset_at: new Date(reset).toISOString(), until: new Date(until).toISOString() }, now);
+const equal = ctx.rateLimitMeta({ model: 'glm-5.3', kind: 'rate_limit', reset_at: new Date(reset).toISOString(), until: new Date(reset).toISOString() }, now);
 const unavailable = ctx.rateLimitMeta({ model: 'missing', kind: 'model_unavailable', until: new Date(until).toISOString() }, now);
 const unknown = ctx.rateLimitMeta({ model: 'glm-5.3', kind: 'rate_limit' }, now);
 process.stdout.write(JSON.stringify({
   rate: rate.detail,
+  equal: equal.detail,
+  equalReset: equal.title.split('\n')[1],
   unavailable: unavailable.detail,
   unknown: unknown.detail,
+  unknownReset: unknown.title.split('\n')[1],
 }));`
 	f, err := os.CreateTemp(t.TempDir(), "rate-limit-format-*.cjs")
 	if err != nil {
@@ -210,7 +215,7 @@ process.stdout.write(JSON.stringify({
 	if err != nil {
 		t.Fatalf("rate-limit formatting node test failed: %v\n%s", err, out)
 	}
-	const want = `{"rate":"预计 2026-09-28 16:00 解封（剩余 2时00分） · 网关最快 1时00分 后重试","unavailable":"预计 1时00分 后重试","unknown":"预计解封时间未知"}`
+	const want = `{"rate":"预计 2026-09-28 16:00 解封（剩余 2时00分） · 网关最快 1时00分 后重试","equal":"预计 2026-09-28 16:00 恢复（剩余 2时00分）","equalReset":"上游重置：2026-09-28 16:00","unavailable":"预计 1时00分 后重试","unknown":"预计解封时间未知","unknownReset":"上游重置：时间未知"}`
 	if strings.TrimSpace(string(out)) != want {
 		t.Fatalf("rate-limit formatting=%s want %s", out, want)
 	}
