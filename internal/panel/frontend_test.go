@@ -248,9 +248,11 @@ vm.runInContext(
 const time = new Date(2026, 8, 28, 14, 5, 6).toISOString();
 const good = { time, status: 200, outcome: 'success', model: 'glm-5.3', account: '账号(uid8)', duration_ms: 1250, total_tokens: 2300, credit_known: true, credit: 0.12, request_id: 'req-1', client_ip: '203.0.113.7', user_agent: 'python-requests/2.31.0', effort: 'high' };
 const noSource = { ...good, request_id: 'req-3', client_ip: '', user_agent: '' };
+const cached = { ...good, request_id: 'req-2', cache_hit_tokens: 2257, cache_miss_tokens: 43 };
 process.stdout.write(JSON.stringify({
   good: ctx.requestLogText(good),
   noSource: ctx.requestLogText(noSource),
+  cached: ctx.requestLogText(cached),
 }));`
 	f, err := os.CreateTemp(t.TempDir(), "request-log-format-*.cjs")
 	if err != nil {
@@ -266,7 +268,8 @@ process.stdout.write(JSON.stringify({
 	}
 	text := "14:05:06 | 200 成功 | glm-5.3 | 账号(uid8) | 203.0.113.7 | python-requests/2.31.0 | 1.25s | 2.3k tok | 0.12 credit | req-1 | 思考=high"
 	noSource := "14:05:06 | 200 成功 | glm-5.3 | 账号(uid8) | — | — | 1.25s | 2.3k tok | 0.12 credit | req-3 | 思考=high"
-	want := `{"good":` + strconv.Quote(text) + `,"noSource":` + strconv.Quote(noSource) + `}`
+	cached := "14:05:06 | 200 成功 | glm-5.3 | 账号(uid8) | 203.0.113.7 | python-requests/2.31.0 | 1.25s | 2.3k tok | 0.12 credit | 命中 98.1% | req-2 | 思考=high"
+	want := `{"good":` + strconv.Quote(text) + `,"noSource":` + strconv.Quote(noSource) + `,"cached":` + strconv.Quote(cached) + `}`
 	if strings.TrimSpace(string(out)) != want {
 		t.Fatalf("request log formatting=%s want %s", out, want)
 	}
@@ -502,6 +505,7 @@ process.stdout.write(JSON.stringify({
   rolling24: q('24', true),
   rolling72: q('72', true),
   rolling0: q('0', true),
+  logAll: q('0', false),
   log24From: approx(q('24', false), Math.floor((now - 24 * 3600e3) / 1000)),
   log24HasHours: /hours=/.test(q('24', false)),
   log7dFrom: approx(q('168', false), Math.floor((now - 168 * 3600e3) / 1000)),
@@ -531,7 +535,7 @@ process.stdout.write(JSON.stringify({
 		return strconv.FormatInt(time.Date(2026, 9, 30, h, m, 0, 0, time.Local).Unix(), 10)
 	}
 	want := `{"todayIsMidnight":true,"todayNoTo":true,` +
-		`"rolling24":"hours=24","rolling72":"hours=72","rolling0":"",` +
+		`"rolling24":"hours=24","rolling72":"hours=72","rolling0":"hours=0","logAll":"",` +
 		`"log24From":true,"log24HasHours":false,"log7dFrom":true,` +
 		`"custom":"from=` + local(9, 0) + `&to=` + local(18, 30) + `",` +
 		`"labelCustom":"9-30 09:00 → 9-30 18:30","labelToday":"今天"}`

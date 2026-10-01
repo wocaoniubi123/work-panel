@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/linguo2625469/workbuddy2api-panel/internal/auth"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/httpauth"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/livecfg"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/pool"
@@ -355,33 +356,8 @@ func (p *Panel) models(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "models": out})
 }
 
-// WarmModelRates 启动预热：异步各域拉一次模型目录，让倍率快照 / effort 缓存在首访前就绪
-//（「前端去预热 + 启动拉一次」：前端不再为用量页自动预热模型目录）。失败仅记日志，不影响启动。
-func (p *Panel) WarmModelRates() {
-	if p == nil || p.cfg.Pool == nil || p.cfg.Upstream == nil {
-		return
-	}
-	if uids := p.cfg.Pool.AvailableUIDsForRealm("cn"); len(uids) > 0 {
-		if acct := p.cfg.Pool.AuthByUID(uids[0]); acct != nil {
-			if _, err := p.cfg.Upstream.FetchModels(acct); err != nil {
-				log.Printf("[panel] 启动预热：CN 模型目录拉取失败: %v", err)
-			} else {
-				log.Printf("[panel] 启动预热：CN 模型目录已就绪")
-			}
-		}
-	}
-	if p.cfg.Upstream.GlobalEnabled {
-		if uids := p.cfg.Pool.AvailableUIDsForRealm("global"); len(uids) > 0 {
-			if acct := p.cfg.Pool.AuthByUID(uids[0]); acct != nil {
-				if infos := p.cfg.Upstream.FetchGlobalModelInfos(acct); len(infos) == 0 {
-					log.Printf("[panel] 启动预热：global 模型目录为空")
-				} else {
-					log.Printf("[panel] 启动预热：global 模型目录已就绪（%d 个）", len(infos))
-				}
-			}
-		}
-	}
-}
+// 启动预热统一走上游 cmd/server 的 warmModelRates（倍率表/保底/用量页倍率同源；
+// 本地版 Panel.WarmModelRates 已随该上游实现合并而去重移除）。
 
 // panelModelEntry 构造单个模型条目（两域共用）：id 带 realm 前缀（调用值即显示值），
 // context_length / max_output_tokens 走四级查找链，effort 档位按 realm 域取
@@ -638,8 +614,64 @@ func (p *Panel) balanceAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.cfg.Scheduler.RunBalanceRefreshNow()
+	p.syncNicknames()
 	log.Printf("panel: 手动全量余额刷新完成")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "accounts": p.cfg.Pool.List()})
+}
+
+// syncNicknames 手动刷新时的昵称同步（issue #94：上游改名免重登）。
+// 只在面板手动「刷新」路径调用——后台余额定时器不触发（用户明确要求资料接口
+// 仅手动触达）。逐号拉 /console/account，只取 nickname（手机号等敏感字段在
+// upstream.FetchAccountProfile 内即被丢弃）；单号失败静默跳过，不打断余额刷新
+// 的既有结果。
+func (p *Panel) syncNicknames() {
+	type job struct {
+		uid string
+		a   *auth.Auth
+	}
+	var jobs []job
+	for _, st := range p.cfg.Pool.List() {
+		if st.Disabled {
+			continue
+		}
+		if a := p.cfg.Pool.AuthByUID(st.UID); a != nil && a.AccessTokenValue() != "" {
+			jobs = append(jobs, job{uid: st.UID, a: a})
+		}
+	}
+	if len(jobs) == 0 {
+		return
+	}
+	var (
+		mu       sync.Mutex
+		updated  int
+		failed   int
+		sem      = make(chan struct{}, 3)
+		wg       sync.WaitGroup
+	)
+	for _, j := range jobs {
+		wg.Add(1)
+		go func(j job) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			nick, err := p.cfg.Upstream.FetchAccountProfile(j.a)
+			if err != nil {
+				mu.Lock()
+				failed++
+				mu.Unlock()
+				return
+			}
+			if p.cfg.Pool.SetNickname(j.uid, nick) {
+				mu.Lock()
+				updated++
+				mu.Unlock()
+			}
+		}(j)
+	}
+	wg.Wait()
+	if updated > 0 || failed > 0 {
+		log.Printf("panel: 昵称同步：更新 %d 个，失败 %d 个（未变化不计数）", updated, failed)
+	}
 }
 
 // ---------------------------------------------------------------------------
