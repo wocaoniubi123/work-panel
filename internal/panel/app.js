@@ -362,6 +362,8 @@ function renderAccounts(list) {
     tb.innerHTML = '<tr><td colspan="9"><div class="empty"><div class="big">账号池是空的</div>点击右上角「添加账号」，用浏览器登录一个 WorkBuddy 账号</div></td></tr>';
     return;
   }
+  // 展示层排序：按积分降序（同分保持原相对顺序）；只排显示的行，不动池内顺序与选号逻辑。
+  list = [...list].sort((a, b) => (b.credits || 0) - (a.credits || 0));
   // 有总额度（credits_total）→ 进度条按自身 剩余/总额 百分比；旧数据无总额 → 退回池内最高=100%
   const maxCred = Math.max(1, ...list.map(s => s.credits || 0));
   tb.innerHTML = list.map(s => {
