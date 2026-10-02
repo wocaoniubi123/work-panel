@@ -2003,7 +2003,7 @@ function usLiveAgo(ms) {
 }
 
 /* renderUsageLive 渲染「使用状态」卡（用量页第 2 格）：
-   绿灯=使用中（overview 里 in_flight>0 的账号，多号顿号并列）；
+   绿灯=使用中（overview 里 in_flight>0 的账号，每行一个、各带呼吸灯）；
    黄灯=空闲（取 token_usage.last_used_at 最近的账号 + 空闲时长）。
    名字/时间完整显示，格子放不下自然折行；overview 拉不到时灰灯「—」。 */
 function renderUsageLive(ov) {
@@ -2014,8 +2014,9 @@ function renderUsageLive(ov) {
   if (ov) {
     const running = accounts.filter(a => (a.in_flight || 0) > 0);
     if (running.length) {
-      const names = running.map(a => a.nickname || String(a.uid).slice(0, 8));
-      html = '<span class="lamp on"></span><span>' + esc(names.join('、')) + '</span>';
+      html = running.map(a =>
+        '<span class="lamp on"></span><span>' + esc(a.nickname || String(a.uid).slice(0, 8)) + '</span>'
+      ).join('<br>');
     } else {
       let best = null;
       accounts.forEach(a => {
