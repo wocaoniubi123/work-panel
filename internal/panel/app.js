@@ -1991,10 +1991,12 @@ function renderUsage(d) {
   renderUsageChart(usageData.series || []);
 }
 
-/* usLiveAgo 空闲时长档位：<1 分钟「刚刚」→ x 分钟前 → x 小时前 → 昨天 / x 天前。 */
+/* usLiveAgo 空闲时长档位：<1 分钟「x 秒前」→ x 分钟前 → x 小时前 → 昨天 / x 天前。
+   原 <1 分钟显示「刚刚」，但这两个超密字在 11.5px 光栅化时会糊并成一个块
+   （实测放大像素：换字重/字体/text-rendering 均无效），改用与账号表 ago() 同口径的秒数。 */
 function usLiveAgo(ms) {
   const s = Math.max(0, Math.floor(ms / 1000));
-  if (s < 60) return '刚刚';
+  if (s < 60) return s + ' 秒前';
   const m = Math.floor(s / 60);
   if (m < 60) return m + ' 分钟前';
   const h = Math.floor(m / 60);
