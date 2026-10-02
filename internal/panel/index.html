@@ -431,8 +431,10 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
   @media (max-width: 1180px) { #usStats { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
   @media (max-width: 700px) { #usStats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   /* 用量页「使用状态」卡（第 2 格）：呼吸灯 + 名字（+空闲时长）。
-     绿灯=使用中；黄灯=空闲·最近；灰灯=数据不可达。名字/时间完整，放不下自然折行。 */
-  #usLive { font-size: 11.5px; line-height: 1.7; font-weight: 500; color: var(--ink);
+     绿灯=使用中；黄灯=空闲·最近；灰灯=数据不可达。名字/时间完整，放不下自然折行。
+     字族必须显式回到正文 --sans：挂在 .kpi .v 下会继承等宽栈，等宽栈无中文字形 →
+     「余半」和「（刚刚）」逐字回退成两种字体，小字号下笔画糊在一起像叠字。 */
+  #usLive { font-size: 11.5px; line-height: 1.7; font-weight: 500; font-family: var(--sans); color: var(--ink);
     white-space: normal; overflow-wrap: break-word; }
   #usLive .lamp { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
     margin-right: 5px; vertical-align: .5px; animation: usPulse 1.6s ease-in-out infinite; }
