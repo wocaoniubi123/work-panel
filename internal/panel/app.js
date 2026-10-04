@@ -2542,7 +2542,10 @@ function renderPackages(d, detailLimit) {
   const list = (d.accounts || []);
   const now = Date.now();
   const expiryColors = pkAccountColorMap(list);
-  renderExpiryDistribution(list, now);
+  // 到期分布图与账号池的到期提醒卡同口径：禁用的号不参与（禁用=不参与选号，
+  // 其积分不会被网关消耗，到期提醒无意义）。账号对比卡片仍展示全部账号。
+  const disSet = new Set(((overviewData && overviewData.accounts) || []).filter(a => a.disabled).map(a => String(a.uid)));
+  renderExpiryDistribution(list.filter(a => !disSet.has(String(a.uid))), now);
   if (!list.length) {
     $('pkSummary').innerHTML = '<div class="empty">没有账号</div>';
     return;
@@ -2833,8 +2836,8 @@ function renderExpiry(d) {
   };
   const excluded = (d.accounts || []).filter(a => dis.has(String(a.uid))).length;
   const list = (d.accounts || []).filter(a => !dis.has(String(a.uid))).slice().sort((x, y) => expKey(x) - expKey(y));
-  // 摘要行聚合：最早到期（全局）+ 最近批次合计 + 到期前日均需耗合计。
-  const agg = { minDays: Infinity, minDate: '', minName: '', sumFirst: 0, sumDaily: 0, n: 0 };
+  // 摘要行聚合：最早到期（全局）+ 7 天内到期批次合计（日均 = 合计 ÷ 7 天）。
+  const agg = { minDays: Infinity, minDate: '', minName: '', sumW: 0, n: 0 };
   const rows = list.map(a => {
     if (a.error) {
       return '<div class="exp-row"><span class="exp-dot" style="background:var(--ink-3)"></span>' +
@@ -2855,19 +2858,21 @@ function renderExpiry(d) {
     // 危险度：≤3 天红（不抓紧就真没了）、≤7 天琥珀、更远绿。
     // 上游扣包是 FEFO（按失效时刻升序，实测两号口径一致）：这些快过期批次正是
     // 被消耗得最快的，日均需耗给的是「哪怕单靠这个账号的自然流量也能对齐」的参照。
-    const cls = days <= 3 ? 'var(--bad)' : days <= 7 ? 'var(--warn)' : 'var(--ok)';
+    // 危险度色阶（≤3 天红 / ≤7 天琥珀 / 更远绿）：色点与积分数字共用同一函数（eCls）。
+    const eCls = dd => dd <= 3 ? 'var(--bad)' : dd <= 7 ? 'var(--warn)' : 'var(--ok)';
+    const cls = eCls(days);
     const dayWord = days === 0 ? '今天到期' : days === 1 ? '明天到期' : days + ' 天后到期';
     const more = bs.length > 4 ? '　等 ' + bs.length + ' 批' : '';
     const rest = bs.slice(1, 4).map(b =>
-      '随后 ' + esc(b.date.slice(5)) + ' · ' + fmtTok(b.remain)).join('　') + more;
-    agg.n++; agg.sumFirst += first.remain; agg.sumDaily += daily;
+      '随后 ' + esc(b.date.slice(5)) + ' · <span style="color:' + eCls(expDaysLeft(b.date, today)) + '">' + fmtTok(b.remain) + '</span>').join('　') + more;
+    agg.n++; agg.sumW += week;   // week = 该号 7 天内到期批次合计（可为 0）
     if (days < agg.minDays) { agg.minDays = days; agg.minDate = first.date; agg.minName = a.nickname || a.uid.slice(0, 8); }
     return '<div class="exp-row"><span class="exp-dot" style="background:' + cls + '"></span>' +
       '<span class="exp-nm">' + esc(a.nickname || a.uid.slice(0, 8)) + '</span>' +
       '<span class="exp-main">最近到期 <b>' + esc(first.date) + '</b>（' + dayWord +
-      '）· 该批 <b>' + fmtTok(first.remain) + '</b> 积分 · 到期前日均需耗 ≥<b>' +
+      '）· 该批 <b style="color:' + cls + '">' + fmtTok(first.remain) + '</b> 积分 · 到期前日均需耗 ≥<b style="color:' + cls + '">' +
       fmtTok(daily) + '</b>' +
-      (week > first.remain ? ' · 7 天内合计 ' + fmtTok(week) : '') +
+      (week > first.remain ? ' · 7 天内合计 <b style="color:' + cls + '">' + fmtTok(week) + '</b>' : '') +
       (rest ? '<div class="note">' + rest + '</div>' : '') +
       '</span></div>';
   }).join('');
@@ -2876,7 +2881,7 @@ function renderExpiry(d) {
     const scls = agg.minDays <= 3 ? 'var(--bad)' : agg.minDays <= 7 ? 'var(--warn)' : 'var(--ok)';
     const sword = agg.minDays === 0 ? '今天到期' : agg.minDays === 1 ? '明天到期' : agg.minDays + ' 天后到期';
     sum = '<div class="exp-sumline"><span class="exp-dot" style="background:' + scls + '"></span>' +
-      '<span>最早到期 <b>' + esc(agg.minDate) + '</b>（' + sword + ' · ' + esc(agg.minName) + '）· 最近批次合计 <b class="r">' + fmtTok(agg.sumFirst) + '</b> 分 · 到期前日均需耗 ≥<b class="r">' + fmtTok(agg.sumDaily) + '</b>' +
+      '<span>最早到期 <b>' + esc(agg.minDate) + '</b>（' + sword + ' · ' + esc(agg.minName) + '）· 最近7天内批次合计 <b class="r">' + fmtTok(agg.sumW) + '</b> 分 · 到期前日均需耗 ≥<b class="r">' + fmtTok(Math.ceil(agg.sumW / 7)) + '</b>' +
       '<span class="note">' + agg.n + ' 个号' + (excluded ? '（不含 ' + excluded + ' 个禁用号）' : '') + ' · 悬停看逐号明细</span></span></div>' +
       '<div class="exp-pop">' + rows + '</div>';
   }
