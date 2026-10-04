@@ -359,12 +359,17 @@ func (p *Panel) models(w http.ResponseWriter, r *http.Request) {
 // 启动预热统一走上游 cmd/server 的 warmModelRates（倍率表/保底/用量页倍率同源；
 // 本地版 Panel.WarmModelRates 已随该上游实现合并而去重移除）。
 
-// panelModelEntry 构造单个模型条目（两域共用）：id 带 realm 前缀（调用值即显示值），
+// panelModelEntry 构造单个模型条目（两域共用）：id 即调用值（CN 域裸名、global 域带前缀），
 // context_length / max_output_tokens 走四级查找链，effort 档位按 realm 域取
 // EffortListing（远端权威 ∪ 静态兜底表）——与 /v1/models 同一口径，两侧不再漂移。
 func panelModelEntry(realm string, mi upstream.ModelInfo, remoteEfforts []string, remoteDefault string, httpc *http.Client) map[string]any {
+	// id 即调用值：CN 域裸名（路由协议里裸名默认 cn），global 域保留前缀区分。
+	id := mi.ID
+	if realm == "global" {
+		id = "global:" + mi.ID
+	}
 	entry := map[string]any{
-		"id":                   realm + ":" + mi.ID,
+		"id":                   id,
 		"name":                 mi.Name,
 		"default_effort":       mi.DefaultEffort,
 		"supported_efforts":    mi.Efforts,

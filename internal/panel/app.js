@@ -501,8 +501,8 @@ $('btnActivityAll').onclick = async () => {
 
 /* ── 模型 ─────────────────────────────────────────────────────────── */
 /* 实测上限标注：scripts/probe_max_tokens.py --panel-out 写入探测结果，
-   /panel/api/model_probes 只读透传。探测键带域前缀（cn:glm-5.2），模型表
-   显示裸名，按「精确命中或 :后缀」关联。无数据时本列退回上游声称值。 */
+   /panel/api/model_probes 只读透传。探测键新文件为裸名、旧文件带 cn: 前缀；
+   按「精确命中 → cn: 前缀 → :后缀」关联。无数据时本列退回上游声称值。 */
 function fmtK(n) { n = Number(n || 0); return n >= 1000 ? Math.round(n / 1000) + 'K' : String(n); }
 function probeDays(ts) {
   if (!ts) return null;
@@ -563,9 +563,9 @@ async function loadModels() {
       $('mdNote').textContent = '上游未返回模型';
       return;
     }
-    // 探测键带域前缀（cn:glm-5.2），模型表显示裸名，按「精确命中或 :后缀」关联。
+    // 探测键新文件为裸名、旧文件带 cn: 前缀；按「精确命中 → cn: 前缀 → :后缀」关联。
     const probeKeys = Object.keys(mdProbes);
-    mdProbeOf = id => mdProbes[id] || mdProbes[probeKeys.find(k => k.endsWith(':' + id))];
+    mdProbeOf = id => mdProbes[id] || mdProbes[(id.indexOf(':') < 0 ? 'cn:' : '') + id] || mdProbes[probeKeys.find(k => k.endsWith(':' + id))];
     const hit = mdAll.filter(m => mdProbeOf(m.id)).length;
     $('mdNote').textContent = mdAll.length + ' 个模型 · 已刷新降级缓存' + (hit ? ' · ' + hit + ' 个有实测上限' : '');
     renderModels();
@@ -604,7 +604,8 @@ function mdMatch(m, f) {
       if (!text.includes(kw)) return false;
     }
   }
-  if (f.realm && !String(m.id || '').startsWith(f.realm + ':')) return false;
+  // 域筛选与路由同语义：global: 前缀=国际域，其余（含裸名）一律国内域。
+  if (f.realm && (String(m.id || '').startsWith('global:') ? 'global' : 'cn') !== f.realm) return false;
   if (f.cap === 'tool' && !m.supports_tool_call) return false;
   if (f.cap === 'vision' && !m.supports_images) return false;
   if (f.cap === 'reasoning' && !m.supports_reasoning) return false;

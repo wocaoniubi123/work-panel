@@ -353,8 +353,9 @@ func applyModelInfoFields(entry map[string]any, mi upstream.ModelInfo) map[strin
 func (h *Handler) modelList() []map[string]any {
 	out := make([]map[string]any, 0)
 	for _, mi := range h.fetchDynamicModels() {
+		// id 即调用值：CN 域裸名（路由协议里裸名默认 cn）；global 域在下方分支带前缀。
 		entry := map[string]any{
-			"id":       "cn:" + mi.ID,
+			"id":       mi.ID,
 			"object":   "model",
 			"created":  1753600000,
 			"owned_by": "workbuddy",

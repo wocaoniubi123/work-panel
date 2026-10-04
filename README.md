@@ -706,7 +706,7 @@ python3 scripts/probe_max_tokens.py   --base http://127.0.0.1:7863/v1 --key sk-x
 
 # 断点续测 / 只测指定模型 / 预览计划
 ... --resume
-... --models cn:glm-5.2 --panel-out data/output_probes.json
+... --models glm-5.2 --panel-out data/output_probes.json
 ... --dry-run
 ```
 
