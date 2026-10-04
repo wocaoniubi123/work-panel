@@ -870,40 +870,24 @@ func TestCooldownSoftForModelParsedUntil(t *testing.T) {
 	}
 }
 
-func TestCooldownSoftForModelHonorsResetNotSoftMax(t *testing.T) {
-	// 官方重置时间内一律按官方时间（不再截断到 soft_rate_max）；仅 >24h 防呆钳制。
+func TestCooldownSoftForModelCappedBySoftRateMax(t *testing.T) {
+	// 解析时间超出 soft_rate_max → 截断到 soft_rate_max（提前探测语义，不无限期拉黑）。
 	p := New("")
 	p.Add(&auth.Auth{UID: "u1"})
 	p.SetSoftRateMax(10 * time.Minute)
-	reset := time.Now().Add(2 * time.Hour)
+	reset := time.Now().Add(2 * time.Hour) // 远超过封顶 10m
+	before := time.Now()
 	p.CooldownSoftForModel("u1", 600*time.Second, reset, "glm-5.3", "429 rate limit")
 	st, _ := p.Status("u1")
 	if len(st.RateLimitedModels) != 1 {
 		t.Fatalf("want model ledger row: %+v", st.RateLimitedModels)
 	}
-	if d := st.RateLimitedModels[0].Until.Sub(reset); d < -time.Second || d > time.Second {
-		t.Errorf("model until=%v want 按官方=%v（soft_rate_max 不应再截断）", st.RateLimitedModels[0].Until, reset)
+	if st.RateLimitedModels[0].Until.Sub(before) > 10*time.Minute+time.Second {
+		t.Errorf("model until=%v want capped at soft_rate_max=10m", st.RateLimitedModels[0].Until)
 	}
-	// 台账行必须直接透出 reset_at（与 Until 相等也不例外）——悬浮提示依赖它。
+	// 台账行照发上游原始墙钟（4a4c2f7 语义）——悬浮提示依赖它。
 	if d := st.RateLimitedModels[0].ResetAt.Sub(reset); d < -time.Second || d > time.Second {
-		t.Errorf("row reset_at=%v want 透出官方 %v（相等也照发）", st.RateLimitedModels[0].ResetAt, reset)
-	}
-
-	// 超 24h 异常远期 → 防呆钳到 ~24h。
-	reset2 := time.Now().Add(30 * time.Hour)
-	p.CooldownSoftForModel("u1", 600*time.Second, reset2, "hy3-x", "429 rate limit")
-	st2, _ := p.Status("u1")
-	var got time.Time
-	for _, r := range st2.RateLimitedModels {
-		if r.Model == "hy3-x" {
-			got = r.Until
-		}
-	}
-	if got.IsZero() {
-		t.Fatal("want hy3-x ledger row")
-	}
-	if d := got.Sub(time.Now().Add(resetHonorGuard)); d < -time.Minute || d > time.Minute {
-		t.Errorf("model until=%v want ~24h 防呆钳制", got)
+		t.Errorf("row reset_at=%v want 透出官方原始 %v", st.RateLimitedModels[0].ResetAt, reset)
 	}
 }
 

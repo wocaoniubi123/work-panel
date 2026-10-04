@@ -91,14 +91,13 @@ func TestCooldownSoftForModelDoesNotClobberUntil(t *testing.T) {
 	}
 }
 
-// TestCooldownSoftForModelHonorsResetTime 6004 写 modelCooldowns：按上游官方重置
-// 时间设 Until（不提前探、不再套 soft_rate_max）；仅超 24h 防呆上限才钳制并保留
-// reset_at 原始墙钟。
-func TestCooldownSoftForModelHonorsResetTime(t *testing.T) {
+// TestCooldownSoftForModelCapsUntilKeepsResetAt 6004 写 modelCooldowns：
+// until 截断到 soft_rate_max，reset_at 保留上游原始墙钟（issue #36 台账语义迁移）。
+func TestCooldownSoftForModelCapsUntilKeepsResetAt(t *testing.T) {
 	p := New("")
 	p.Add(&auth.Auth{UID: "u1"})
-	p.SetSoftRateMax(10 * time.Minute) // 已不参与官方时间路径：即使只有 10m，也必须按官方 2h
-	reset := time.Now().Add(2 * time.Hour)
+	p.SetSoftRateMax(10 * time.Minute)
+	reset := time.Now().Add(2 * time.Hour) // 远超封顶 → until 截断到 10m，reset_at 保留 2h
 	p.CooldownSoftForModel("u1", 600*time.Second, reset, "glm-5.3", "6004 model rate limit")
 	p.mu.RLock()
 	mc, ok := p.byUID["u1"].modelCooldowns["glm-5.3"]
@@ -106,24 +105,11 @@ func TestCooldownSoftForModelHonorsResetTime(t *testing.T) {
 	if !ok {
 		t.Fatal("modelCooldowns 缺少 glm-5.3")
 	}
-	if d := mc.Until.Sub(reset); d < -time.Second || d > time.Second {
-		t.Errorf("Until=%v want 按官方 %v（提前探已关闭、soft_rate_max 不再截断）", mc.Until, reset)
+	if rem := mc.Until.Sub(time.Now()); rem <= 0 || rem > 10*time.Minute+time.Second {
+		t.Errorf("Until 应在 (0,10m] 区间，实际剩余 %v", rem)
 	}
-
-	// 防呆：30h 异常远期 → 钳到 ~24h，ResetAt 保留原始墙钟（非零即随台账透出）。
-	reset2 := time.Now().Add(30 * time.Hour)
-	p.CooldownSoftForModel("u1", 600*time.Second, reset2, "hy3-x", "6004 model rate limit")
-	p.mu.RLock()
-	mc2, ok2 := p.byUID["u1"].modelCooldowns["hy3-x"]
-	p.mu.RUnlock()
-	if !ok2 {
-		t.Fatal("modelCooldowns 缺少 hy3-x")
-	}
-	if d := mc2.Until.Sub(time.Now().Add(resetHonorGuard)); d < -time.Minute || d > time.Minute {
-		t.Errorf("Until=%v want ~24h 防呆钳制", mc2.Until)
-	}
-	if d := mc2.ResetAt.Sub(reset2); d < -time.Second || d > time.Second {
-		t.Errorf("ResetAt=%v want ~30h=%v（防呆钳制时保留原始墙钟）", mc2.ResetAt, reset2)
+	if d := mc.ResetAt.Sub(reset); d < -time.Second || d > time.Second {
+		t.Errorf("ResetAt=%v want ~2h 后=%v", mc.ResetAt, reset)
 	}
 }
 
