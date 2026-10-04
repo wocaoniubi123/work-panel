@@ -913,21 +913,22 @@ func TestModelsDynamic(t *testing.T) {
 			if mm["max_output_tokens"].(float64) != 8192 {
 				t.Errorf("dyn-model-a max_output_tokens=%v want 8192", mm["max_output_tokens"])
 			}
-			// reasoning 档位透出：supported_efforts + default_effort
-			efforts, _ := mm["supported_efforts"].([]any)
+			// reasoning 档位透出：v1 契约字段 reasoning_supported_efforts / reasoning_default_effort。
+			// （历史上 id 带 cn: 前缀，此裸名 switch 从不命中、断言从未执行；去前缀后按真实契约修正字段名。）
+			efforts, _ := mm["reasoning_supported_efforts"].([]any)
 			if len(efforts) != 3 || efforts[0] != "low" {
-				t.Errorf("dyn-model-a supported_efforts=%v", mm["supported_efforts"])
+				t.Errorf("dyn-model-a reasoning_supported_efforts=%v", mm["reasoning_supported_efforts"])
 			}
-			if mm["default_effort"] != "medium" {
-				t.Errorf("dyn-model-a default_effort=%v want medium", mm["default_effort"])
+			if mm["reasoning_default_effort"] != "medium" {
+				t.Errorf("dyn-model-a reasoning_default_effort=%v want medium", mm["reasoning_default_effort"])
 			}
 		case "dyn-model-b":
 			// 上游未返回 reasoning → 两个档位字段都省略（客户端按自身默认）
-			if _, has := mm["supported_efforts"]; has {
-				t.Errorf("dyn-model-b supported_efforts should be omitted, got %v", mm["supported_efforts"])
+			if _, has := mm["reasoning_supported_efforts"]; has {
+				t.Errorf("dyn-model-b reasoning_supported_efforts should be omitted, got %v", mm["reasoning_supported_efforts"])
 			}
-			if _, has := mm["default_effort"]; has {
-				t.Errorf("dyn-model-b default_effort should be omitted")
+			if _, has := mm["reasoning_default_effort"]; has {
+				t.Errorf("dyn-model-b reasoning_default_effort should be omitted")
 			}
 		case "glm-9.9":
 			if mm["context_length"].(float64) != 262144 {
