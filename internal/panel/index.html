@@ -602,11 +602,23 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
     font-size: 12.5px; }
   .exp-row + .exp-row { border-top: 1px solid var(--line-soft); }
   .exp-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 4px; flex: none; }
-  .exp-nm { font-weight: 600; flex: none; min-width: 9em; }
+  .exp-nm { font-weight: 600; flex: none; min-width: 9em; white-space: nowrap; }
   .exp-main { color: var(--ink-2, inherit); }
   .exp-main b { font-family: var(--mono); font-variant-numeric: tabular-nums; }
   .exp-main .note { margin-top: 2px; font-size: 11px; color: var(--ink-3); }
   .exp-main.err { color: var(--bad); }
+  /* 到期提醒一行化：摘要行 + 悬停明细层（box 需解除 overflow:hidden，否则弹出层被裁）。 */
+  #expBox { overflow: visible; }
+  #expBox .pad { position: relative; }
+  .exp-sumline { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-2); }
+  .exp-sumline .exp-dot { flex: 0 0 auto; }
+  .exp-sumline b { color: var(--ink); font-family: var(--mono); font-weight: 600; }
+  .exp-sumline b.r { color: var(--bad); }
+  .exp-sumline .note { margin-left: 4px; }
+  .exp-pop { display: none; position: absolute; left: 0; right: 0; top: 100%; z-index: 30;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    box-shadow: var(--shadow); padding: 12px 17px; max-height: 430px; overflow: auto; }
+  #expBox .pad:hover .exp-pop { display: block; }
 
 </style>
 </head>

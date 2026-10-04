@@ -2822,8 +2822,19 @@ function expDaysLeft(dateStr, today) {
 }
 
 function renderExpiry(d) {
-  const list = (d.accounts || []);
   const today = new Date(); today.setHours(0, 0, 0, 0);
+  // 禁用的号不参与提醒（禁用=不参与选号，积分不会被网关消耗，提醒无意义）。
+  const dis = new Set(((overviewData && overviewData.accounts) || []).filter(a => a.disabled).map(a => String(a.uid)));
+  // 明细按最早到期升序排列；无未来批次/查询失败的垫底（与全站「无日期垫底」口径一致）。
+  const expKey = a => {
+    if (a.error) return Infinity;
+    const bs = expBatches(a.packages).filter(b => expDaysLeft(b.date, today) >= 0);
+    return bs.length ? Date.parse(bs[0].date) : Infinity;
+  };
+  const excluded = (d.accounts || []).filter(a => dis.has(String(a.uid))).length;
+  const list = (d.accounts || []).filter(a => !dis.has(String(a.uid))).slice().sort((x, y) => expKey(x) - expKey(y));
+  // 摘要行聚合：最早到期（全局）+ 最近批次合计 + 到期前日均需耗合计。
+  const agg = { minDays: Infinity, minDate: '', minName: '', sumFirst: 0, sumDaily: 0, n: 0 };
   const rows = list.map(a => {
     if (a.error) {
       return '<div class="exp-row"><span class="exp-dot" style="background:var(--ink-3)"></span>' +
@@ -2849,6 +2860,8 @@ function renderExpiry(d) {
     const more = bs.length > 4 ? '　等 ' + bs.length + ' 批' : '';
     const rest = bs.slice(1, 4).map(b =>
       '随后 ' + esc(b.date.slice(5)) + ' · ' + fmtTok(b.remain)).join('　') + more;
+    agg.n++; agg.sumFirst += first.remain; agg.sumDaily += daily;
+    if (days < agg.minDays) { agg.minDays = days; agg.minDate = first.date; agg.minName = a.nickname || a.uid.slice(0, 8); }
     return '<div class="exp-row"><span class="exp-dot" style="background:' + cls + '"></span>' +
       '<span class="exp-nm">' + esc(a.nickname || a.uid.slice(0, 8)) + '</span>' +
       '<span class="exp-main">最近到期 <b>' + esc(first.date) + '</b>（' + dayWord +
@@ -2858,12 +2871,33 @@ function renderExpiry(d) {
       (rest ? '<div class="note">' + rest + '</div>' : '') +
       '</span></div>';
   }).join('');
-  $('expList').innerHTML = rows || '<div class="empty">没有账号</div>';
+  let sum = '';
+  if (agg.n) {
+    const scls = agg.minDays <= 3 ? 'var(--bad)' : agg.minDays <= 7 ? 'var(--warn)' : 'var(--ok)';
+    const sword = agg.minDays === 0 ? '今天到期' : agg.minDays === 1 ? '明天到期' : agg.minDays + ' 天后到期';
+    sum = '<div class="exp-sumline"><span class="exp-dot" style="background:' + scls + '"></span>' +
+      '<span>最早到期 <b>' + esc(agg.minDate) + '</b>（' + sword + ' · ' + esc(agg.minName) + '）· 最近批次合计 <b class="r">' + fmtTok(agg.sumFirst) + '</b> 分 · 到期前日均需耗 ≥<b class="r">' + fmtTok(agg.sumDaily) + '</b>' +
+      '<span class="note">' + agg.n + ' 个号' + (excluded ? '（不含 ' + excluded + ' 个禁用号）' : '') + ' · 悬停看逐号明细</span></span></div>' +
+      '<div class="exp-pop">' + rows + '</div>';
+  }
+  $('expList').innerHTML = sum || rows || '<div class="empty">没有账号</div>';
+  // 账号列宽自适应：量出最长账号名实测宽度，整列统一（邮箱等长名不再折行）。
+  (function () {
+    const pop = $('expList').querySelector('.exp-pop');
+    if (!pop) return;
+    pop.style.display = 'block'; pop.style.visibility = 'hidden';   // 先挂出来量宽，同步收起无闪烁
+    const nms = pop.querySelectorAll('.exp-nm');
+    let w = 0;
+    nms.forEach(el => { w = Math.max(w, el.scrollWidth); });
+    nms.forEach(el => { el.style.flexBasis = w + 'px'; el.style.minWidth = w + 'px'; });
+    pop.style.visibility = ''; pop.style.display = '';
+  })();
   // 数据新鲜度透明化：走缓存时标注年龄，免得把旧数据误当实时。
   const ageMin = lastPackages ? Math.floor((Date.now() - lastPackagesAt) / 60000) : 0;
+  const exNote = excluded ? '（不含 ' + excluded + ' 个禁用号）' : '';
   $('expNote').textContent = (lastPackagesAt && ageMin > 0)
-    ? list.length + ' 个账号 · ' + ageMin + ' 分钟前的数据，可点「检查」刷新'
-    : list.length + ' 个账号 · 实时查询上游';
+    ? list.length + ' 个账号' + exNote + ' · ' + ageMin + ' 分钟前的数据，可点「检查」刷新'
+    : list.length + ' 个账号' + exNote + ' · 实时查询上游';
   $('expBox').hidden = false;
 }
 
