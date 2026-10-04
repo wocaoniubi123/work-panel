@@ -388,6 +388,10 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
   .nav { position: static; height: auto; flex-direction: row; align-items: center; overflow-x: auto; }
   .nav ul { display: flex; padding: 8px; } .nav .sig { border: none; }
   .stat { border-right: none; border-bottom: 1px solid var(--line-soft); }
+  /* 窄窗口（含缩小的桌面浏览器）：盒子标题栏允许换行——否则「标题+超长口径说明+按钮」
+     会被 nowrap 撑到上千像素，把整页拉出横向滚动条（右侧内容被裁、右下角露横滚条）。 */
+  .box > header { flex-wrap: wrap; row-gap: 6px; }
+  .box > header h3 { white-space: normal; }
 }
   /* ── 用量视图 ─────────────────────────────────────────────────────
      这一页一屏要放下「两组 KPI + 图表 + 三张表」，所以视觉语言比账号池更轻：
