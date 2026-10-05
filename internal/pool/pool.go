@@ -57,8 +57,9 @@ type Pool struct {
 	// 加权路由的闲置补偿调优（SetWeights 注入；默认值见 defaultIdle*）。
 	idleWeightPerHour float64
 	idleWeightMax     float64
-	// preferExpiring 最早到期优先路由开关（默认 true）。开启且快过期窗口内存在有效
-	// 批次时，选号在成本层内先按最早到期排序；关闭后只使用普通加权路由。
+	// preferExpiring 「快过期积分优先」总开关（默认 true）：开启且窗口内存在有效批次时，
+	// 新会话按最早到期优先绑定（PickExpiringUID）+ 普通轮换候选权重 ×3；关闭后两者
+	// 一并停、回普通路由（窗口数据仅保留给面板显示）。
 	preferExpiring bool
 	// maxInFlight 单账号最大在途请求数；0 = 不限（租约关闭）。
 	maxInFlight int

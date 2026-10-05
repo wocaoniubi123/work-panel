@@ -245,6 +245,10 @@ func (p *Pool) pick(tried map[string]bool, reqModel, realm string) *auth.Auth {
 func (p *Pool) PickExpiringUID(model, realm string) (string, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if !p.preferExpiring {
+		// 「快过期积分优先」总开关关闭：会话硬优先一并停（窗口数据保留给面板显示）。
+		return "", false
+	}
 	now := time.Now()
 	var best *entry
 	for _, e := range p.byUID {
