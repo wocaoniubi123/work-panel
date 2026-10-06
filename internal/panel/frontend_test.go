@@ -761,6 +761,48 @@ process.stdout.write(JSON.stringify({
 	}
 }
 
+// 图表分档口径钉住：按「日历日差」归档（与到期卡 expDaysLeft 同口径），
+// 不再是「精确时刻 ceil」——10-14 深夜 23:59:59 到期的包必须归 7 天档
+// （旧口径会 ceil 成 8 天，与到期卡/「7 天内」语义脱节），10-15 凌晨归 8 天。
+// 时刻全部本地构造并走 expires_at，任何时区下断言稳定。
+func TestAppJSExpirySummaryCalendarDays(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not installed; expiry calendar-days test skipped")
+	}
+	script := `const fs = require('fs');
+const vm = require('vm');
+const src = fs.readFileSync(process.argv[2], 'utf8');
+const start = src.indexOf('const PK_ACCOUNT_COLORS');
+const end = src.indexOf('function renderExpiryDistribution');
+if (start < 0 || end < 0) throw new Error('expiry summary functions not found');
+const ctx = { Date, Math, Number, String, Map, Array, Object, isFinite };
+vm.createContext(ctx);
+vm.runInContext(src.slice(start, end) + '\nthis.summarizeCreditDays = summarizeCreditDays;', ctx);
+const now = new Date(2026, 9, 7, 12, 0, 0).getTime();
+const out = ctx.summarizeCreditDays([
+  { uid: 'x', remain: 40, packages: [{ name: 'late-night', remain: 40, expires_at: new Date(2026, 9, 14, 23, 59, 59).getTime() }] },
+  { uid: 'y', remain: 10, packages: [{ name: 'next-dawn', remain: 10, expires_at: new Date(2026, 9, 15, 0, 0, 14).getTime() }] },
+], now);
+process.stdout.write(JSON.stringify(out.rows.map(r => ({ days: r.days, credits: r.credits }))));`
+	f, err := os.CreateTemp(t.TempDir(), "expiry-cal-*.cjs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(script); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	out, err := exec.Command(node, f.Name(), "app.js").CombinedOutput()
+	if err != nil {
+		t.Fatalf("expiry calendar-days node test failed: %v\n%s", err, out)
+	}
+	const want = `[{"days":7,"credits":40},{"days":8,"credits":10}]`
+	if strings.TrimSpace(string(out)) != want {
+		t.Fatalf("expiry calendar-days=%s want %s", out, want)
+	}
+}
+
 // TestAppJSCollectConfigClearable 钉住 collectConfig 的空串语义。
 //
 // 覆盖型字段（user_agent / prompt_file）空串必须照发：漏发会让面板显示"已保存"

@@ -2436,6 +2436,16 @@ function pkExpiryMs(p) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+// pkCalDays 图表分档用的「日历日差」：到期日 00:00 与今天 00:00 的整天差，
+// 与到期卡 expDaysLeft 同口径。此前用「精确时刻 ceil」，会把同一天深夜到期的包
+// 沿 24 小时边界推到下一档（如 10-14 23:59 到期显示成 8 天），与到期卡和
+// 「7 天内」的语义脱节。
+function pkCalDays(expiresAt, now) {
+  const d = new Date(expiresAt); d.setHours(0, 0, 0, 0);
+  const t = new Date(now); t.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.round((d.getTime() - t.getTime()) / PK_DAY_MS));
+}
+
 // pkDetailCompare 只服务单账号逐包明细：正余额包先按到期时间挑选默认展示项，
 // 其余正余额包与已用完包分别折叠；同一到期时间按面额降序。主键跟随视图排序
 // 模式（pkSortMode，声明在本区块末尾的绑定块）：end_asc 到期升序、size_desc
@@ -2520,7 +2530,7 @@ function pkAccountSegments(a, now) {
     out.push({
       amount,
       expiresAt,
-      days: expiresAt == null ? null : Math.max(0, Math.ceil((expiresAt - now) / PK_DAY_MS)),
+      days: expiresAt == null ? null : pkCalDays(expiresAt, now),
       source: p.name || '积分',
       uid: String(a.uid || ''),
       accountName: a.nickname || String(a.uid || '').slice(0, 8) || '未命名账号',
@@ -2534,8 +2544,9 @@ function pkAccountSegments(a, now) {
   });
 }
 
-// summarizeCreditDays 对齐 WorkDaddy：按精确剩余天数逐行聚合，无有效到期时间的余额
-// 不进入图表，也不猜测到期日。账号内先按总余额约束逐包金额，避免上游重复记录膨胀。
+// summarizeCreditDays 按「日历日差」逐行聚合（与到期卡 expDaysLeft 同口径；不再沿用
+// WorkDaddy 的精确时刻 ceil——那会把同一天深夜到期的包推到下一档）；无有效到期时间的
+// 余额不进入图表，也不猜测到期日。账号内先按总余额约束逐包金额，避免上游重复记录膨胀。
 function summarizeCreditDays(list, now) {
   const buckets = new Map();
   let unavailable = 0;
@@ -2921,7 +2932,7 @@ function renderExpiry(d) {
     // 危险度色阶（≤3 天红 / ≤7 天琥珀 / 更远绿）：色点与积分数字共用同一函数（eCls）。
     const eCls = dd => dd <= 3 ? 'var(--bad)' : dd <= 7 ? 'var(--warn)' : 'var(--ok)';
     const cls = eCls(days);
-    const dayWord = days === 0 ? '今天到期' : days === 1 ? '明天到期' : days + ' 天后到期';
+    const dayWord = days === 0 ? '今天到期' : days === 1 ? '明天到期' : days + ' 天内到期';
     const more = bs.length > 4 ? '　等 ' + bs.length + ' 批' : '';
     const rest = bs.slice(1, 4).map(b =>
       '随后 ' + esc(b.date.slice(5)) + ' · <span style="color:' + eCls(expDaysLeft(b.date, today)) + '">' + fmtTok(b.remain) + '</span>').join('　') + more;
@@ -2939,7 +2950,7 @@ function renderExpiry(d) {
   let sum = '';
   if (agg.n) {
     const scls = agg.minDays <= 3 ? 'var(--bad)' : agg.minDays <= 7 ? 'var(--warn)' : 'var(--ok)';
-    const sword = agg.minDays === 0 ? '今天到期' : agg.minDays === 1 ? '明天到期' : agg.minDays + ' 天后到期';
+    const sword = agg.minDays === 0 ? '今天到期' : agg.minDays === 1 ? '明天到期' : agg.minDays + ' 天内到期';
     sum = '<div class="exp-sumline"><span class="exp-dot" style="background:' + scls + '"></span>' +
       '<span>最早到期 <b>' + esc(agg.minDate) + '</b>（' + sword + ' · ' + esc(agg.minName) + '）· 最近7天内批次合计 <b class="r">' + fmtTok(agg.sumW) + '</b> 分 · 到期前日均需耗 ≥<b class="r">' + fmtTok(Math.ceil(agg.sumW / 7)) + '</b>' +
       '<span class="note">' + agg.n + ' 个号' + (excluded ? '（不含 ' + excluded + ' 个禁用号）' : '') + ' · 悬停看逐号明细</span></span></div>' +
