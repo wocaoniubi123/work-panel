@@ -1276,6 +1276,10 @@ func (c *Client) FetchModels(a *auth.Auth) ([]ModelInfo, error) {
 	if len(out) == 0 {
 		return nil, fmt.Errorf("models api returned empty list")
 	}
+	// 出口固定顺序：v3 路的 id 列表由 map 迭代生成（每次随机），合并后统一按
+	// 名称自然序重排——面板「重新获取」与 /v1/models 共用本出口，一处排序两处
+	// 稳定；global 域同口径（见 global_models.go 的 fetchGlobalModelsOnce）。
+	sortModelInfosByName(out)
 	c.storeModelRates(a.Realm(), out)
 	// 刷新 effort 能力缓存（供请求体降级；无 supportedEfforts 的模型不入桶）。
 	// 空桶时跳过写：避免「某探测无档位数据」清掉既有桶。
