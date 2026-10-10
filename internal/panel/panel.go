@@ -800,12 +800,10 @@ func (p *Panel) usageSave(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// packages 返回全部账号的积分包构成，供「积分构成」视图对比。
-//
-// 逐个账号向上游查（并发有上限，避免瞬时打满上游限流），失败只在对应账号上
-// 标 error，不影响其它账号——一个号 token 失效不该让整页空白。
+// packages 返回全部账号的积分包构成，供「积分构成」视图与首页到期提醒共用。
+// 数据来自池子里的逐包明细快照（余额刷新写入），不再逐账号实时查上游——
+// 秒回、零额外上游调用。余额刷新失败的账号快照为空（前端显示「无到期积分」）。
 func (p *Panel) packages(w http.ResponseWriter, r *http.Request) {
-	accts := p.cfg.Pool.List()
 	type row struct {
 		UID      string                   `json:"uid"`
 		Nickname string                   `json:"nickname"`
@@ -815,37 +813,18 @@ func (p *Panel) packages(w http.ResponseWriter, r *http.Request) {
 		Packages []upstream.CreditPackage `json:"packages"`
 		Error    string                   `json:"error,omitempty"`
 	}
-	out := make([]row, len(accts))
-
-	sem := make(chan struct{}, 3)
-	var wg sync.WaitGroup
-	for i, s := range accts {
-		wg.Add(1)
-		go func(i int, s pool.Status) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			it := row{UID: s.UID, Nickname: s.Nickname, Realm: s.Realm}
-			a := p.cfg.Pool.AuthByUID(s.UID)
-			if a == nil {
-				it.Error = "account not loaded"
-				out[i] = it
-				return
-			}
-			packs, remain, size, err := p.cfg.Upstream.CreditPackages(a)
-			if err != nil {
-				it.Error = err.Error()
-				out[i] = it
-				return
-			}
-			it.Packages = packs
-			it.Remain = remain
-			it.Size = size
-			out[i] = it
-		}(i, s)
+	accts := p.cfg.Pool.List()
+	out := make([]row, 0, len(accts))
+	for _, s := range accts {
+		out = append(out, row{
+			UID:      s.UID,
+			Nickname: s.Nickname,
+			Realm:    s.Realm,
+			Remain:   s.Credits,
+			Size:     s.CreditsTotal,
+			Packages: p.cfg.Pool.PackagesOf(s.UID),
+		})
 	}
-	wg.Wait()
 
 	// 余额降序：多的在前，便于和少的对比。
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Remain > out[j].Remain })

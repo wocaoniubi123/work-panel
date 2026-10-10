@@ -2063,10 +2063,20 @@ func (c *Client) enterpriseResource(a *auth.Auth, soon time.Duration) (remain, t
 // earliestAt 是最早的可用到期时刻，earliestRemaining 是同一时刻所有正余额包的剩余量之和。
 // 已过期、剩余为 0、缺少或无法解析到期时间的包都不会成为最早批次；无有效批次时返回零值。
 func (c *Client) UserResourceDetailedWithExpiry(a *auth.Auth, soon time.Duration) (remain, total, expiring int64, earliestAt time.Time, earliestRemaining int64, err error) {
+	remain, total, expiring, earliestAt, earliestRemaining, _, err = c.UserResourceDetailedWithPackages(a, soon)
+	return remain, total, expiring, earliestAt, earliestRemaining, err
+}
+
+// UserResourceDetailedWithPackages 与 UserResourceDetailedWithExpiry 同一上游请求、
+// 同一汇总口径，但额外返回逐包构成 packs（复用 CreditPackages 的解析）。
+// 供余额刷新一次性拿全「汇总 + 最早到期 + 逐包明细」，面板 packages 接口据此
+// 读池子即可，不再单独打上游——同一份数据两条消费路径。
+func (c *Client) UserResourceDetailedWithPackages(a *auth.Auth, soon time.Duration) (remain, total, expiring int64, earliestAt time.Time, earliestRemaining int64, packs []CreditPackage, err error) {
 	// 企业版额度不在「个人资源包」体系内：get-user-resource* 对 enterpriseId 非空账号
 	// 恒返回空 Accounts（实测 code 0 且 Accounts null），故分流到企业口径端点。
 	if a.IsEnterprise() {
-		return c.enterpriseResource(a, soon)
+		remain, total, expiring, earliestAt, earliestRemaining, err = c.enterpriseResource(a, soon)
+		return remain, total, expiring, earliestAt, earliestRemaining, nil, err
 	}
 	now := time.Now()
 	body := map[string]any{
@@ -2086,8 +2096,9 @@ func (c *Client) UserResourceDetailedWithExpiry(a *auth.Auth, soon time.Duration
 		return e
 	})
 	if err != nil {
-		return 0, 0, 0, time.Time{}, 0, err
+		return 0, 0, 0, time.Time{}, 0, nil, err
 	}
+	// 完整字段解析：CreditPackages（逐包明细）与 UserResourceDetailed（汇总）并集。
 	var resp struct {
 		Response struct {
 			Data struct {
@@ -2100,14 +2111,23 @@ func (c *Client) UserResourceDetailedWithExpiry(a *auth.Auth, soon time.Duration
 					CycleCapacitySize   int64  `json:"CycleCapacitySize"`
 					CycleCapacityRemain int64  `json:"CycleCapacityRemain"`
 					CycleCapacityUsed   int64  `json:"CycleCapacityUsed"`
+					ExpiredTime         string `json:"ExpiredTime"`
+					PackageEndTime      string `json:"PackageEndTime"`
+					DeductionEndTime    int64  `json:"DeductionEndTime"`
+					CreateTime          int64  `json:"CreateTime"`
+					PackageCode         string `json:"PackageCode"`
+					SubProductCode      string `json:"SubProductCode"`
+					SubProductName      string `json:"SubProductName"`
 				} `json:"Accounts"`
 			} `json:"Data"`
 		} `json:"Response"`
 	}
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return 0, 0, 0, time.Time{}, 0, fmt.Errorf("resource parse: %w", err)
+		return 0, 0, 0, time.Time{}, 0, nil, fmt.Errorf("resource parse: %w", err)
 	}
+	packs = make([]CreditPackage, 0, len(resp.Response.Data.Accounts))
 	for _, acct := range resp.Response.Data.Accounts {
+		// —— 汇总聚合（口径与 UserResourceDetailedWithExpiry 完全一致）——
 		r, _, size := packageRemainUsed(respAccount{
 			CapacityRemain:      acct.CapacityRemain,
 			CapacityUsed:        acct.CapacityUsed,
@@ -2124,25 +2144,72 @@ func (c *Client) UserResourceDetailedWithExpiry(a *auth.Auth, soon time.Duration
 		}
 		remain += r
 		total += size
-		if r <= 0 {
-			continue
+		if r > 0 {
+			end, ok := parsePackageEndTime(acct.CycleEndTime)
+			if ok && end.After(now) {
+				if earliestAt.IsZero() || end.Before(earliestAt) {
+					earliestAt = end
+					earliestRemaining = r
+				} else if end.Equal(earliestAt) {
+					earliestRemaining += r
+				}
+				// 分桶：仅 soon>0 且确实在窗口内 → expiring。
+				if soon > 0 && !end.After(now.Add(soon)) {
+					expiring += r
+				}
+			}
 		}
-		end, ok := parsePackageEndTime(acct.CycleEndTime)
-		if !ok || !end.After(now) {
-			continue
+
+		// —— 逐包构建（口径与 CreditPackages 完全一致）——
+		cp := CreditPackage{
+			Name:           acct.PackageName,
+			PackageCode:    acct.PackageCode,
+			SubProductCode: acct.SubProductCode,
+			SubProductName: acct.SubProductName,
 		}
-		if earliestAt.IsZero() || end.Before(earliestAt) {
-			earliestAt = end
-			earliestRemaining = r
-		} else if end.Equal(earliestAt) {
-			earliestRemaining += r
+		switch {
+		case acct.DeductionEndTime > 0:
+			// 真失效时刻（可抵扣窗口结束），epoch 毫秒 → RFC3339。
+			cp.EndTime = time.UnixMilli(acct.DeductionEndTime).Format(time.RFC3339)
+			cp.ExpiresAt = acct.DeductionEndTime
+		case acct.ExpiredTime != "":
+			cp.EndTime = acct.ExpiredTime
+		case acct.PackageEndTime != "":
+			cp.EndTime = acct.PackageEndTime
+		default:
+			cp.EndTime = acct.CycleEndTime
 		}
-		// 分桶：仅 soon>0 且确实在窗口内 → expiring。
-		if soon > 0 && !end.After(now.Add(soon)) {
-			expiring += r
+		if cp.ExpiresAt == 0 && cp.EndTime != "" {
+			if end, perr := time.ParseInLocation(packageEndLayout, cp.EndTime, softRateResetLoc); perr == nil {
+				cp.ExpiresAt = end.UnixMilli()
+			}
 		}
+		// CreateTime 是 epoch 毫秒；0 表示上游没给，留空而不是伪造 1970。
+		if acct.CreateTime > 0 {
+			cp.CreatedAt = time.UnixMilli(acct.CreateTime).Format(time.RFC3339)
+		}
+		if acct.CycleCapacitySize > 0 {
+			cp.Cycle = true
+			cp.Remain, cp.Size = acct.CycleCapacityRemain, acct.CycleCapacitySize
+			cp.Used = cp.Size - cp.Remain
+			if acct.CycleCapacityUsed > cp.Used {
+				cp.Used = acct.CycleCapacityUsed
+				cp.Remain = cp.Size - cp.Used
+			}
+			if cp.Remain < 0 {
+				cp.Remain = 0
+			}
+		} else {
+			cp.Remain, cp.Used, cp.Size = acct.CapacityRemain, acct.CapacityUsed, acct.CapacitySize
+			if cp.Used == 0 && cp.Size > cp.Remain {
+				cp.Used = cp.Size - cp.Remain
+			}
+		}
+		packs = append(packs, cp)
 	}
-	return remain, total, expiring, earliestAt, earliestRemaining, nil
+	// 面额降序：大包一眼可见，正是差异最可能出现的地方。
+	sort.SliceStable(packs, func(i, j int) bool { return packs[i].Size > packs[j].Size })
+	return remain, total, expiring, earliestAt, earliestRemaining, packs, nil
 }
 
 // respAccount 供 packageRemainUsed 解析的套餐字段（CreditPackages 的逐包结构同构）。

@@ -99,6 +99,28 @@ func (p *Pool) SetCreditsDetailed(uid string, credits, total, expiring int64, ea
 	}
 }
 
+// SetPackages 更新账号逐包明细快照（余额刷新写入，面板 packages 接口读取）。
+// 持久化：与 credits/earliest 同口径，重启后到期提醒/积分构成直接显示。
+func (p *Pool) SetPackages(uid string, packs []upstream.CreditPackage) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if e, ok := p.byUID[uid]; ok {
+		e.packages = packs
+		p.dirty.Store(true)
+	}
+}
+
+// PackagesOf 返回账号当前的逐包明细快照（可能为空/nil）。只读、不拷贝——
+// 调用方（面板）不得修改返回切片。
+func (p *Pool) PackagesOf(uid string) []upstream.CreditPackage {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if e, ok := p.byUID[uid]; ok {
+		return e.packages
+	}
+	return nil
+}
+
 // ClearExpiringSnapshots 清空所有账号的快过期/最早到期缓存。配置窗口改变时调用，
 // 避免在新快照写入前继续使用旧窗口得到的路由数据；下一次签到或余额刷新会重建。
 func (p *Pool) ClearExpiringSnapshots() {

@@ -147,6 +147,7 @@ func (p *Pool) applyAccountsLocked(accounts map[string]stateAccount) {
 			creditsExpiring:          s.CreditsExpiring,
 			creditsEarliestExpiry:    s.CreditsEarliestExpiry,
 			creditsEarliestRemaining: s.CreditsEarliestRemaining,
+			packages:                 s.Packages,
 			disabled:                 s.Disabled,
 			paused:                   s.Paused,
 			reason:                   s.Reason,
@@ -303,6 +304,7 @@ func (p *Pool) stateOverviewLocked() stateFile {
 			CreditsExpiring:          e.creditsExpiring,
 			CreditsEarliestExpiry:    e.creditsEarliestExpiry,
 			CreditsEarliestRemaining: e.creditsEarliestRemaining,
+			Packages:                 e.packages,
 		}
 		// 熔断截止：仅未过期才落盘（指针 nil 才能被 omitempty 真省略）。
 		if !e.breakerUntil.IsZero() && now.Before(e.breakerUntil) {

@@ -626,13 +626,14 @@ func (s *Scheduler) RunBalanceRefreshNow() {
 		wg.Add(1)
 		go func(a *auth.Auth, uid string) {
 			defer wg.Done()
-			remain, total, expiring, earliestAt, earliestRemaining, err := s.cfg.Upstream.UserResourceDetailedWithExpiry(a, expiringSoon)
+			remain, total, expiring, earliestAt, earliestRemaining, packs, err := s.cfg.Upstream.UserResourceDetailedWithPackages(a, expiringSoon)
 			if err != nil {
 				log.Printf("balance %s: %v", logfmt.Label(uid, a.Nickname), err)
 				return
 			}
 			s.cfg.Pool.ReenableIfCredits(uid, remain, total)
 			s.cfg.Pool.SetCreditsDetailed(uid, remain, total, expiring, earliestAt, earliestRemaining)
+			s.cfg.Pool.SetPackages(uid, packs)
 		}(a, st.UID)
 	}
 	wg.Wait()

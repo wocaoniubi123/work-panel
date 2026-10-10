@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/linguo2625469/workbuddy2api-panel/internal/auth"
+	"github.com/linguo2625469/workbuddy2api-panel/internal/upstream"
 )
 
 // degradeReason 连败降权（issue #114）写 reason 的固定文案：与冷却域的
@@ -189,7 +190,10 @@ type entry struct {
 	creditsExpiring          int64
 	creditsEarliestExpiry    time.Time
 	creditsEarliestRemaining int64
-	successCount             int64      // 累计成功
+	// packages 逐包明细快照（余额刷新写入，面板 packages 接口读取，不再单独打上游）。
+	// 持久化：与 credits/earliest 同口径，重启后到期提醒/积分构成直接显示，无空窗。
+	packages     []upstream.CreditPackage
+	successCount int64      // 累计成功
 	errTotal                 int64      // 累计错误（供成功率权重 successRate = successCount/(successCount+errTotal)，不清零）
 	lastErr                  time.Time  // 最近一次错误时间
 	lastSuccess              time.Time  // 最近一次成功时间
@@ -463,6 +467,10 @@ type stateAccount struct {
 	// 与 CreditsExpiring 一并持久化，重启后首次请求仍可沿用最近一次余额快照。
 	CreditsEarliestExpiry    time.Time `json:"credits_earliest_expiry,omitempty"`
 	CreditsEarliestRemaining int64     `json:"credits_earliest_remaining,omitempty"`
+	// Packages 逐包明细快照（余额刷新写入，面板 packages 接口读取）。持久化以保留
+	// 重启后「到期提醒 / 积分构成」直接显示，与余额/最早到期同口径——重启后到首轮
+	// 余额刷新之间不出现空窗。
+	Packages []upstream.CreditPackage `json:"packages,omitempty"`
 	// ModelCooldowns 模型级独立冷却表（model → 冷却记录：6004 重置墙钟 / 11102
 	// 负缓存退避）。持久化：6004 对齐上游重置墙钟后单模型冷却可长达数小时，
 	// 跨重启是常态；不持久化会导致 healthyForModel 重启失忆、重新踩雷区。

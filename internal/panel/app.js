@@ -360,8 +360,9 @@ function go(v) {
   if (v === 'logs') loadLogs();
   if (v === 'usage') { loadUsage(); usAutoStart(); } else { usAutoStop(); }
   if (v === 'packages') loadPackages();
-  // 到期提醒卡片不再「打开账号池就自动查」：逐账号实时查上游，账号一多打开面板
-  // 就卡死。数据只由卡片上的「检查」按钮显式触发；卡片初始隐藏。
+  // 到期提醒卡片随账号池页自动显示：数据走 packages 接口，后端读池子里的逐包
+  // 明细快照（余额刷新维护），秒回、零额外上游调用；前端另有 2 分钟 fresh 窗口防重复拉。
+  if (v === 'accounts') loadExpiry();
   if (v === 'taskscenter') reattachQueueView();
 }
 document.querySelectorAll('.nav a').forEach(a => a.onclick = e => { e.preventDefault(); go(a.dataset.view); history.replaceState(null, '', '#' + a.dataset.view); });
