@@ -555,7 +555,6 @@ func (p *Pool) statusOf(uid string, e *entry) Status {
 		CreditsEarliestExpiry:    e.creditsEarliestExpiry,
 		CreditsEarliestRemaining: e.creditsEarliestRemaining,
 		Cooling:                  now.Before(e.until) || now.Before(e.breakerUntil),
-		Reason:                   e.reason,
 		Disabled:                 e.disabled,
 		Paused:                   e.paused,
 		SuccessCount:             e.successCount,
@@ -564,7 +563,6 @@ func (p *Pool) statusOf(uid string, e *entry) Status {
 		TokenUsage:               e.tokenUsage,
 		LastSuccessTime:          e.lastSuccess,
 		LastErrTime:              e.lastErr,
-		Until:                    e.until,
 		SoftStreak:               e.softStreak,
 		ModelCosts:               p.modelCostsStatusLocked(e, now),
 		ConsecutiveFails:         e.consecutiveFails,
@@ -572,6 +570,15 @@ func (p *Pool) statusOf(uid string, e *entry) Status {
 		InFlight:                 int(e.inFlight.Load()),
 		BreakerFails:             e.fails,
 		BreakerUntil:             e.breakerUntil,
+	}
+	// reason/until 只在「禁用（禁用原因）或 until 仍在效（冷却原因）」时透出：
+	// 冷却自然到期后它们是残留（issue #171——「可用」旁长期挂「429 rate limit」
+	// 灰字），只读路径不写状态，按与 clearExpiredCoolingLocked 同口径就地判。
+	if e.disabled || now.Before(e.until) {
+		st.Reason = e.reason
+	}
+	if now.Before(e.until) {
+		st.Until = e.until
 	}
 	if st.Disabled {
 		// 禁用账号透出禁用原因（运维看不到为什么死）。

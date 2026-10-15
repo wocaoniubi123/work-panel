@@ -177,6 +177,10 @@ func (p *Pool) applyAccountsLocked(accounts map[string]stateAccount) {
 			e.creditsEarliestExpiry = time.Time{}
 			e.creditsEarliestRemaining = 0
 		}
+		// 冷却三件套过期归一（issue #171）：仅「未禁用且 until 未过期」保留，旧文件里
+		// 「过期 until + 残留 reason」不装回（对齐本文件 breakerUntil/degradeUntil/
+		// modelCooldowns 的「未过期才恢复」惰性过滤模式；softStreak 由该函数内部保留）。
+		e.clearExpiredCoolingLocked(now)
 		// 熔断器持久化恢复：breakerUntil 未过期才恢复（过期不复活），retryCount 仅在
 		// 熔断仍有效时保留（否则归零，不保留无用退避指数）。
 		if s.BreakerUntil != nil && now.Before(*s.BreakerUntil) {
@@ -280,10 +284,13 @@ func (p *Pool) notePersistFail(err error) {
 }
 
 // stateOverviewLocked 收集当前内存状态为 stateFile（供落盘 + 快照镜像复用）。调用方必须已持 p.mu。
+// 落盘前先归一自然到期的冷却残留（issue #171）：过期 reason/until/coolKind 不写进
+// state.json、镜像快照同样干净，内存一并清掉——这是过期残留唯一的周期性清理时机。
 func (p *Pool) stateOverviewLocked() stateFile {
 	now := time.Now()
 	sf := stateFile{Accounts: map[string]stateAccount{}}
 	for uid, e := range p.byUID {
+		e.clearExpiredCoolingLocked(now)
 		s := stateAccount{
 			Credits:                  e.credits,
 			CreditsTotal:             e.creditsTotal,

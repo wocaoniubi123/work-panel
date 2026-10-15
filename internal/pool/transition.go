@@ -39,6 +39,29 @@ func (e *entry) clearCoolingLocked() {
 	e.modelCooldowns = nil // 冷却域清零时一并清模型级独立冷却（模型豁免随之消失）
 }
 
+// clearExpiredCoolingLocked 冷却自然到期归一（issue #171）：未禁用且 until 已过时，
+// 清掉 reason/until/coolKind 三件套。它们此前只有「新冷却覆盖 / Revive / Disable」
+// 三条清理路径，自然到期后残留——面板会以「可用 + 429 rate limit」的形态长期挂
+// 灰字（上游实测 6 天），state.json 里同样带着过期直到与原因，且重启还会装回。
+//
+// 与 clearCoolingLocked 的区别：softStreak 保留（它是跨冷却周期的退避计数，恢复
+// 证据是 NoteSuccess 而非到期，见 reviveCoolingLocked）；modelCooldowns 保留
+// （模型级冷却有独立截止，到期语义自洽）；熔断域不属冷却自然不碰。
+//
+// 只读路径（statusOf 持 RLock）不调用本函数，按同口径就地判（见 statusOf）。
+// 调用方必须已持有 p.mu。
+func (e *entry) clearExpiredCoolingLocked(now time.Time) {
+	if e.disabled || now.Before(e.until) {
+		return // 禁用（reason 是禁用原因）/ 冷却仍生效：保留
+	}
+	if e.until.IsZero() && e.coolKind == 0 && e.reason == "" {
+		return // 已是零值，无残留可清
+	}
+	e.until = time.Time{}
+	e.coolKind = 0
+	e.reason = ""
+}
+
 // disableLocked 禁用迁移：置 disabled 并清冷却域（禁用是比冷却更强的不可用终态）。
 //
 // 旧 Disable 只置 disabled+reason，不碰 until/modelCooldowns/softStreak，会出现
